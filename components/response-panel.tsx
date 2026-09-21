@@ -14,12 +14,21 @@
  *    nothing may look measured. Live fields show only what was really measured
  *    or returned; cost is never shown, because the API documents no cost field.
  *  - A result belongs to the request snapshot it was produced from. Editing
- *    State marks it stale; it is never silently re-attached to new input, and a
- *    live result is never replaced by a fixture or vice versa.
+ *    State or questions marks it stale; it is never silently re-attached to new
+ *    input, and a live result is never replaced by a fixture or vice versa.
+ *  - Answer order, option labels, and the composed outcome come from that
+ *    snapshot. Preset labels and preset composition apply only when the
+ *    snapshot asked exactly the preset's default questions; otherwise the raw
+ *    answers are shown under "Custom questions — preset composition not
+ *    applied."
  */
 
 import type { FixtureResult } from "@/lib/fixtures";
-import { FIXTURE_BADGE_TEXT, FIXTURE_EXPLANATION } from "@/lib/fixtures";
+import {
+  FIXTURE_BADGE_TEXT,
+  FIXTURE_EXPLANATION,
+  questionsMatchPreset,
+} from "@/lib/fixtures";
 import type { Scenario } from "@/lib/scenarios";
 import {
   MUNICIPAL_DISPOSITION_LABELS,
@@ -37,7 +46,9 @@ import type {
   Answers,
   EvaluationRequest,
   EvaluationResponse,
+  Instructions,
   LiveEvaluationPayload,
+  Question,
 } from "@/lib/types";
 import { isChoiceAnswer, isNoulAnswer, isScoreAnswer } from "@/lib/types";
 import {
@@ -52,10 +63,14 @@ export type PlaygroundMode = "fixture" | "live";
 /** What a result and its request have in common, whatever the source. */
 interface ResultBase {
   scenarioId: Scenario["id"];
-  /** The request as submitted. Kept so staleness can be detected honestly. */
+  /**
+   * The request as submitted — State and questions. Staleness, answer order,
+   * option labels, and whether composition applies are all read from this, never
+   * from the current editor or the scenario preset.
+   */
   requestSnapshot: EvaluationRequest;
-  /** The exact State text at submission time. */
-  submittedStateText: string;
+  /** The submitted questions' ids in the order they were shown when submitted. */
+  questionOrder: string[];
 }
 
 /**
@@ -83,6 +98,17 @@ export function resultAnswers(result: PlaygroundResult): Answers {
   return result.source === "fixture"
     ? result.fixture.response.answers
     : result.live.response.answers;
+}
+
+/**
+ * Answer ids in the order the snapshot's questions were shown when submitted.
+ * Any answer id not in that order (there should be none: the route checks ids
+ * both ways) is appended rather than hidden.
+ */
+function answerOrder(result: PlaygroundResult): string[] {
+  const answers = resultAnswers(result);
+  const ordered = result.questionOrder.filter((id) => id in answers);
+  return [...ordered, ...Object.keys(answers).filter((id) => !ordered.includes(id))];
 }
 
 /** The response envelope to show in the JSON view. */
@@ -199,23 +225,45 @@ function Measurement({ result }: { result: PlaygroundResult }) {
   );
 }
 
+/** One line of text for a criteria description, whatever its shape. */
+function describe(value: Instructions): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 function AnswerCard({
   id,
   answer,
+  question,
   scenarioId,
+  presetMeanings,
 }: {
   id: string;
   answer: Answer;
+  /** The question as it was submitted, from the result's snapshot. */
+  question: Question | undefined;
   scenarioId: Scenario["id"];
+  /**
+   * The snapshot asked exactly the preset's default questions, so the preset's
+   * plain-language option labels still describe these options. For any edited
+   * request the raw option keys are shown instead: a reused key such as
+   * `handling` may now mean something else entirely.
+   */
+  presetMeanings: boolean;
 }) {
-  const optionLabels =
-    scenarioId === "safety" && id === "self_harm_context"
+  const optionLabels = !presetMeanings
+    ? undefined
+    : scenarioId === "safety" && id === "self_harm_context"
       ? (SAFETY_SELF_HARM_LABELS as Record<string, string>)
       : scenarioId === "safety" && id === "handling"
         ? (SAFETY_HANDLING_LABELS as Record<string, string>)
         : scenarioId === "municipal" && id === "disposition"
           ? (MUNICIPAL_DISPOSITION_LABELS as Record<string, string>)
           : undefined;
+
+  const yesMeans =
+    question?.type === "noul" && question.criteria?.true !== undefined
+      ? describe(question.criteria.true)
+      : undefined;
 
   return (
     <li
@@ -236,10 +284,11 @@ function AnswerCard({
           <NoulProbability
             answer={answer}
             meaning={
-              scenarioId === "safety" && id === "targeted_insult"
+              presetMeanings && scenarioId === "safety" && id === "targeted_insult"
                 ? "the student is using a personal insult or targeted abuse against someone"
                 : "the answer to this yes/no question is yes"
             }
+            yesMeans={presetMeanings ? undefined : yesMeans}
           />
         ) : null}
         {isScoreAnswer(answer) ? <ScoreDistribution answer={answer} /> : null}
@@ -345,6 +394,13 @@ export function ResponsePanel({
   view: ResponseView;
   onViewChange: (view: ResponseView) => void;
 }) {
+  // Decided from the snapshot the result answers, never from the editor: an
+  // answer to edited questions is not reinterpreted through the preset's rules
+  // even if its ids happen to match the preset's.
+  const presetQuestions =
+    result !== null &&
+    questionsMatchPreset(result.scenarioId, result.requestSnapshot.questions);
+
   return (
     <section
       aria-labelledby="response-heading"
@@ -413,7 +469,7 @@ export function ResponsePanel({
             No fixture was substituted. A failed model call has no answer, and
             showing a hand-written one here would misrepresent it.
             {isErrorStale
-              ? " The State has since been edited, so this failure belongs to the earlier request."
+              ? " The request has since been edited, so this failure belongs to the earlier request."
               : null}
           </p>
         </div>
@@ -470,18 +526,31 @@ export function ResponsePanel({
               role="status"
               className="mt-3 rounded-lg border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-xs font-medium"
             >
-              State has been edited since this result was produced. What you see
-              below belongs to the earlier request snapshot, not to the State in
-              the editor.{" "}
+              The request (State or questions) has been edited since this
+              result was produced. What you see below belongs to the earlier
+              request snapshot, not to the request in the editor.{" "}
               {result.source === "fixture"
                 ? "Press Preview fixture again."
-                : "Press Evaluate with Jev again to spend another call on the new State."}
+                : "Press Evaluate with Jev again to spend another call on the new request."}
             </p>
           ) : null}
 
           {view === "cards" ? (
             <div className="mt-4 space-y-4">
-              {scenario.id === "safety" ? (
+              {!presetQuestions ? (
+                <p
+                  data-testid="custom-composition-note"
+                  className="rounded-lg border border-dashed border-[var(--color-line)] p-3 text-xs text-[var(--color-ink-soft)]"
+                >
+                  <span className="font-semibold text-[var(--color-ink)]">
+                    Custom questions — preset composition not applied.
+                  </span>{" "}
+                  This request did not ask exactly the preset&rsquo;s default
+                  questions, so the preset&rsquo;s application rules would be
+                  reading answers to questions they were not written for. The
+                  raw answers are shown as returned, with no composed outcome.
+                </p>
+              ) : scenario.id === "safety" ? (
                 <SafetyComposition result={result} />
               ) : (
                 <MunicipalComposition result={result} />
@@ -493,11 +562,13 @@ export function ResponsePanel({
                 </h3>
                 <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
                   Every answer is preserved with its full distribution, exactly
-                  as {result.source === "fixture" ? "written" : "returned"}, kept
-                  separate from the composed outcome above.
+                  as {result.source === "fixture" ? "written" : "returned"}
+                  {presetQuestions
+                    ? ", kept separate from the composed outcome above."
+                    : ", in the order the questions were submitted."}
                 </p>
                 <ul role="list" className="mt-2 space-y-3">
-                  {scenario.questionOrder.map((id) => {
+                  {answerOrder(result).map((id) => {
                     const answer = resultAnswers(result)[id];
                     if (!answer) return null;
                     return (
@@ -505,7 +576,9 @@ export function ResponsePanel({
                         key={id}
                         id={id}
                         answer={answer}
+                        question={result.requestSnapshot.questions[id]}
                         scenarioId={scenario.id}
+                        presetMeanings={presetQuestions}
                       />
                     );
                   })}

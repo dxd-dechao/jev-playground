@@ -28,7 +28,10 @@
 /** `instructions` and criteria bodies accept a string or structured data. */
 export type Instructions = string | Record<string, unknown> | unknown[];
 
-/** The evaluated content. Both presets here use an object State. */
+/**
+ * The evaluated content. Both presets' samples use an object State; an edited
+ * request may use plain text or an array instead.
+ */
 export type State = string | Record<string, unknown> | unknown[];
 
 export interface NoulQuestion {
@@ -139,13 +142,15 @@ export type ResultSource = "fixture" | "live";
 /**
  * The body the browser may send to `POST /api/evaluate`.
  *
- * Only these two fields. The questions are resolved on the server from the
- * scenario preset, so the browser cannot smuggle its own questions, model,
- * provider URL, or credentials into an upstream call.
+ * Only these three fields. Since JEV-03 the questions are the reviewer's edited
+ * questions and are validated on the server exactly like the State. The model,
+ * provider URL, and credentials remain server decisions: the route rejects any
+ * body that carries them.
  */
 export interface EvaluateRequestBody {
   scenarioId: string;
   state: unknown;
+  questions: unknown;
 }
 
 /** A successful live evaluation, as returned to the browser. */

@@ -138,10 +138,17 @@ export function ChoiceDistribution({
 export function NoulProbability({
   answer,
   meaning,
+  yesMeans,
 }: {
   answer: NoulAnswer;
   /** What a value near 1 means, spelled out. Required: "true" is not a label. */
   meaning: string;
+  /**
+   * The submitted question's own description of "yes", when it had one. Shown
+   * verbatim for edited questions, so the card names the criteria that were
+   * actually asked rather than a preset's wording.
+   */
+  yesMeans?: string;
 }) {
   return (
     <div>
@@ -151,6 +158,15 @@ export function NoulProbability({
           {percent(answer.noul)}
         </span>
       </p>
+      {yesMeans !== undefined ? (
+        <p
+          data-testid="noul-yes-means"
+          className="mt-1 text-xs text-[var(--color-ink-soft)]"
+        >
+          <span className="font-medium text-[var(--color-ink)]">Yes means (as submitted): </span>
+          {yesMeans.length > 160 ? `${yesMeans.slice(0, 157)}…` : yesMeans}
+        </p>
+      ) : null}
       <div className="mt-2">
         <Bar value={answer.noul} emphasis />
       </div>

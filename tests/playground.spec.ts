@@ -26,6 +26,11 @@ async function setStateText(page: Page, text: string) {
   await page.getByTestId("state-editor").fill(text);
 }
 
+/** One question in the Form, found by its current id. */
+function questionRow(page: Page, id: string) {
+  return page.locator(`[data-testid="question-row"][data-question-id="${id}"]`);
+}
+
 /** The sample buttons only — the `<button>` elements inside the sample groups. */
 function sampleButtons(page: Page) {
   return page.locator('button[data-testid^="sample-"]');
@@ -51,9 +56,10 @@ test("defaults to the safety scenario with its default sample loaded", async ({
 
   // All nine safety samples and all three safety questions are present.
   await expect(sampleButtons(page)).toHaveCount(9);
-  await expect(page.getByTestId("question-self_harm_context")).toBeVisible();
-  await expect(page.getByTestId("question-targeted_insult")).toBeVisible();
-  await expect(page.getByTestId("question-handling")).toBeVisible();
+  await expect(questionRow(page, "self_harm_context")).toBeVisible();
+  await expect(questionRow(page, "targeted_insult")).toBeVisible();
+  await expect(questionRow(page, "handling")).toBeVisible();
+  await expect(page.getByTestId("question-count")).toContainText("Questions (3");
 
   // Nothing is shown in the response panel until a preview is requested.
   await expect(page.getByTestId("response-empty")).toBeVisible();
@@ -101,7 +107,7 @@ test("a sample button replaces State, and Reset restores the preset", async ({
   await page.getByTestId("sample-allow-idiom").click();
   expect(await stateText(page)).toContain("This homework is killing me!");
   // The questions are the preset's and did not change with the sample.
-  await expect(page.getByTestId("question-handling")).toBeVisible();
+  await expect(questionRow(page, "handling")).toBeVisible();
 
   await page.getByTestId("reset-preset").click();
   expect(await stateText(page)).toContain(SAFETY_DEFAULT_MESSAGE);
@@ -161,14 +167,28 @@ test("keeps a malformed JSON draft and disables preview with an actionable error
   await expect(page.getByTestId("preview-fixture")).toBeEnabled();
 });
 
-test("disables preview when State parses but does not match the schema", async ({
+test("warns, without blocking, when State lacks the fields the preset questions read", async ({
   page,
 }) => {
+  // Since JEV-03 the preset State schema is advice: a differently shaped State
+  // is a valid request, it just gives the default questions less to read.
   await setStateText(page, JSON.stringify({ student_message: "Only this" }, null, 2));
-  await expect(page.getByTestId("state-errors")).toContainText(
-    "does not match the expected shape",
+  await expect(page.getByTestId("request-warnings")).toContainText(
+    "shape the preset questions refer to",
   );
-  await expect(page.getByTestId("preview-fixture")).toBeDisabled();
+  await expect(page.getByTestId("request-warnings")).toContainText("learning_context");
+  await expect(page.getByTestId("request-errors")).toHaveCount(0);
+  await expect(page.getByTestId("preview-fixture")).toBeEnabled();
+});
+
+test("disables submission for a State the API does not accept", async ({ page }) => {
+  for (const text of ["null", "42", "true", "{}"]) {
+    await setStateText(page, text);
+    await expect(page.getByTestId("request-errors"), text).toContainText(
+      "does not match the expected shape",
+    );
+    await expect(page.getByTestId("preview-fixture")).toBeDisabled();
+  }
 });
 
 test("refuses a State that carries an expected label", async ({ page }) => {
@@ -185,7 +205,7 @@ test("refuses a State that carries an expected label", async ({ page }) => {
       2,
     ),
   );
-  await expect(page.getByTestId("state-errors")).toContainText(
+  await expect(page.getByTestId("request-errors")).toContainText(
     "must not contain expected labels",
   );
   await expect(page.getByTestId("preview-fixture")).toBeDisabled();
@@ -362,9 +382,7 @@ test("labels every control and gives each a visible keyboard focus", async ({
   const editor = page.getByTestId("state-editor");
   const editorId = await editor.getAttribute("id");
   expect(editorId).toBeTruthy();
-  await expect(page.locator(`label[for="${editorId}"]`)).toHaveText(
-    "State (editable JSON)",
-  );
+  await expect(page.locator(`label[for="${editorId}"]`)).toHaveText("State");
 
   // Every button has an accessible name.
   for (const button of await page.getByRole("button").all()) {

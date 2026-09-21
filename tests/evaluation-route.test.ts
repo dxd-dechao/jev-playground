@@ -1,6 +1,9 @@
 /**
  * Route tests for `POST /api/evaluate` and `GET /api/config`.
  *
+ * Since JEV-03 the body is `{ scenarioId, state, questions }`: the questions are
+ * the reviewer's edited ones, validated here as strictly as the State.
+ *
  * NO REAL CALLS, and more than that: the adapter is mocked, so these tests also
  * assert *when it is not reached at all*. Every rejection path — bad JSON, a
  * schema failure, an oversized body, a missing key — must be a free rejection,
@@ -43,6 +46,11 @@ function post(body: string | ReadableStream, headers: Record<string, string> = {
 
 function jsonPost(payload: unknown) {
   return post(JSON.stringify(payload));
+}
+
+/** The default safety request, as the browser now sends it: State and questions. */
+function safetyPost() {
+  return jsonPost({ scenarioId: "safety", state: safetyState, questions: safety.questions });
 }
 
 const upstreamAnswers = {
@@ -105,39 +113,61 @@ describe("rejections that must never reach the provider", () => {
 
   it("rejects an unknown scenario id", async () => {
     const response = await POST(
-      jsonPost({ scenarioId: "medical_triage", state: safetyState }),
+      jsonPost({
+        scenarioId: "medical_triage",
+        state: safetyState,
+        questions: safety.questions,
+      }),
     );
     expect(response.status).toBe(400);
     expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
   });
 
   it("rejects a body with no state", async () => {
-    const response = await POST(jsonPost({ scenarioId: "safety" }));
+    const response = await POST(
+      jsonPost({ scenarioId: "safety", questions: safety.questions }),
+    );
     expect(response.status).toBe(400);
     expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
   });
 
-  it("rejects client-supplied questions, models, and credentials", async () => {
+  it("rejects a body with no questions, now that the client supplies them", async () => {
+    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as { error: { code: string; message: string } };
+    expect(payload.error.code).toBe("invalid_request");
+    expect(payload.error.message).toContain("questions");
+    expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
+  });
+
+  it("rejects client-supplied models, provider URLs, and credentials", async () => {
     for (const extra of [
-      { questions: { anything: { type: "noul", instructions: "?" } } },
       { model: "some-other-model" },
       { baseURL: "https://attacker.example" },
       { apiKey: "sk-not-a-real-key" },
+      { provider: "other" },
       { expected: "allow" },
     ]) {
       const response = await POST(
-        jsonPost({ scenarioId: "safety", state: safetyState, ...extra }),
+        jsonPost({
+          scenarioId: "safety",
+          state: safetyState,
+          questions: safety.questions,
+          ...extra,
+        }),
       );
       expect(response.status, Object.keys(extra)[0]).toBe(400);
     }
     expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
   });
 
-  it("rejects a state that does not match the scenario schema", async () => {
-    const response = await POST(
-      jsonPost({ scenarioId: "safety", state: { student_message: 42 } }),
-    );
-    expect(response.status).toBe(400);
+  it("rejects a State the API does not accept: null, a number, a boolean, or empty", async () => {
+    for (const state of [null, 42, true, "", "   ", {}, []]) {
+      const response = await POST(
+        jsonPost({ scenarioId: "safety", state, questions: safety.questions }),
+      );
+      expect(response.status, JSON.stringify(state)).toBe(400);
+    }
     expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
   });
 
@@ -146,9 +176,74 @@ describe("rejections that must never reach the provider", () => {
       jsonPost({
         scenarioId: "safety",
         state: { ...safetyState, expected_outcome: "allow" },
+        questions: safety.questions,
       }),
     );
     expect(response.status).toBe(400);
+    expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
+  });
+
+  it("rejects an expected label nested in an array State too", async () => {
+    const response = await POST(
+      jsonPost({
+        scenarioId: "safety",
+        state: [{ message: "hi", ground_truth: "allow" }],
+        questions: safety.questions,
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
+  });
+
+  it("rejects invalid or incomplete questions before any call", async () => {
+    const invalid: unknown[] = [
+      {},
+      { "": { type: "noul", instructions: "Is it?" } },
+      { q: { type: "noul", instructions: "" } },
+      { q: { type: "noul" } },
+      { q: { type: "boolean", instructions: "Is it?" } },
+      { q: { type: "choice", instructions: "Pick.", criteria: { only: null } } },
+      { q: { type: "choice", instructions: "Pick.", criteria: { "  ": null, b: null } } },
+      { q: { type: "score", instructions: "Rate.", criteria: ["one"] } },
+      {
+        q: {
+          type: "score",
+          instructions: "Rate.",
+          criteria: Array.from({ length: 11 }, (_, index) => `L${index}`),
+        },
+      },
+      { q: { type: "noul", instructions: "Is it?", criteria: { maybe: "x" } } },
+      { q: { type: "noul", instructions: "Is it?", threshold: 0.5 } },
+      "not an object",
+    ];
+    for (const questions of invalid) {
+      const response = await POST(
+        jsonPost({ scenarioId: "safety", state: safetyState, questions }),
+      );
+      expect(response.status, JSON.stringify(questions)).toBe(400);
+    }
+    expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
+  });
+
+  it("rejects duplicate question ids and Choice option keys in the raw body", async () => {
+    const stateJson = JSON.stringify(safetyState);
+    const duplicateIds =
+      `{"scenarioId":"safety","state":${stateJson},"questions":{` +
+      `"q":{"type":"noul","instructions":"First?"},` +
+      `"q":{"type":"noul","instructions":"Second?"}}}`;
+    const duplicateOptions =
+      `{"scenarioId":"safety","state":${stateJson},"questions":{` +
+      `"pick":{"type":"choice","instructions":"Pick.",` +
+      `"criteria":{"a":"first a","b":null,"a":"second a"}}}}`;
+
+    for (const body of [duplicateIds, duplicateOptions]) {
+      // JSON.parse alone would accept both, keeping only the last duplicate.
+      expect(() => JSON.parse(body) as unknown).not.toThrow();
+      const response = await POST(post(body));
+      expect(response.status).toBe(400);
+      const payload = (await response.json()) as { error: { message: string } };
+      expect(payload.error.message).toContain("appears more than once");
+    }
     expect(evaluateSystemOne).toHaveBeenCalledTimes(0);
   });
 
@@ -156,6 +251,7 @@ describe("rejections that must never reach the provider", () => {
     const huge = {
       scenarioId: "safety",
       state: { ...safetyState, student_message: "x".repeat(MAX_BODY_BYTES + 1024) },
+      questions: safety.questions,
     };
     const response = await POST(jsonPost(huge));
     expect(response.status).toBe(413);
@@ -190,7 +286,7 @@ describe("rejections that must never reach the provider", () => {
 
   it("answers 503 and makes no call when the server has no key", async () => {
     isConfigured.mockReturnValue(false);
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     expect(response.status).toBe(503);
     const payload = (await response.json()) as { error: { code: string; message: string } };
     expect(payload.error.code).toBe("not_configured");
@@ -211,7 +307,9 @@ describe("a successful evaluation", () => {
   it("calls the adapter once with the preset questions and the exact state", async () => {
     evaluateSystemOne.mockResolvedValue(goodOutcome());
 
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(
+      jsonPost({ scenarioId: "safety", state: safetyState, questions: safety.questions }),
+    );
     expect(response.status).toBe(200);
     expect(evaluateSystemOne).toHaveBeenCalledTimes(1);
 
@@ -223,6 +321,89 @@ describe("a successful evaluation", () => {
     expect(input.state).toEqual(safetyState);
   });
 
+  it("sends exactly the edited State and questions, once, with the server's model", async () => {
+    // A Text State and questions that share nothing with the preset. The route
+    // must pass them through as sent, and validate the answer against them.
+    const state = "  My printer jams on page two.\n";
+    const questions = {
+      severity: {
+        type: "score",
+        instructions: { task: "How severe is this?", scale: "0 is trivial" },
+        criteria: ["Trivial", { level: "Moderate" }, "Blocking"],
+      },
+      mentions_hardware: {
+        type: "noul",
+        instructions: "Does the text mention a hardware device?",
+        criteria: { true: "A physical device is named." },
+      },
+      area: {
+        type: "choice",
+        instructions: "Which area?",
+        criteria: { printing: "Printers and paper.", network: null },
+      },
+    };
+    evaluateSystemOne.mockResolvedValue({
+      raw: {
+        model: "jev-1-resolved",
+        answers: {
+          severity: {
+            type: "score",
+            score: 1.4,
+            legend: { "0": "Trivial", "1": { level: "Moderate" }, "2": "Blocking" },
+            probabilities: { "0": 0.1, "1": 0.4, "2": 0.5 },
+            confidence: 0.3,
+          },
+          mentions_hardware: { type: "noul", noul: 0.97 },
+          area: {
+            type: "choice",
+            choice: "printing",
+            probabilities: { printing: 0.9, network: 0.1 },
+            confidence: 0.7,
+          },
+        },
+      },
+      durationMs: 20,
+      requestedModel: "jev-requested",
+    });
+
+    const response = await POST(jsonPost({ scenarioId: "municipal", state, questions }));
+    expect(response.status).toBe(200);
+    expect(evaluateSystemOne).toHaveBeenCalledTimes(1);
+
+    const input = evaluateSystemOne.mock.calls[0]![0] as Record<string, unknown>;
+    // Exactly the edited request: no preset questions substituted, no trimming,
+    // and no client-chosen model — the adapter resolves that from the server.
+    expect(input.state).toBe(state);
+    expect(input.questions).toEqual(questions);
+    expect(input).not.toHaveProperty("model");
+
+    const payload = (await response.json()) as {
+      requestedModel: string;
+      response: { answers: Record<string, unknown> };
+    };
+    expect(payload.requestedModel).toBe("jev-requested");
+    expect(Object.keys(payload.response.answers).sort()).toEqual([
+      "area",
+      "mentions_hardware",
+      "severity",
+    ]);
+  });
+
+  it("checks the response against the submitted questions, not the preset's", async () => {
+    // Preset answers are a malformed reply to custom questions.
+    evaluateSystemOne.mockResolvedValue(goodOutcome());
+    const response = await POST(
+      jsonPost({
+        scenarioId: "safety",
+        state: safetyState,
+        questions: { only_question: { type: "noul", instructions: "Is it polite?" } },
+      }),
+    );
+    expect(response.status).toBe(502);
+    const payload = (await response.json()) as { error: { code: string } };
+    expect(payload.error.code).toBe("upstream_malformed");
+  });
+
   it("passes content strings through without rewriting them", async () => {
     evaluateSystemOne.mockResolvedValue(goodOutcome());
     const padded = `  ${String(safetyState.student_message)}\n`;
@@ -231,6 +412,7 @@ describe("a successful evaluation", () => {
       jsonPost({
         scenarioId: "safety",
         state: { ...safetyState, student_message: padded },
+        questions: safety.questions,
       }),
     );
 
@@ -241,7 +423,7 @@ describe("a successful evaluation", () => {
 
   it("returns only the documented envelope fields", async () => {
     evaluateSystemOne.mockResolvedValue(goodOutcome());
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     const payload = (await response.json()) as Record<string, unknown>;
 
     expect(Object.keys(payload).sort()).toEqual([
@@ -271,7 +453,7 @@ describe("a successful evaluation", () => {
       durationMs: 10,
       requestedModel: "jev-requested",
     });
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     const payload = (await response.json()) as { response: Record<string, unknown> };
     expect(payload.response).not.toHaveProperty("usage");
   });
@@ -281,7 +463,7 @@ describe("a successful evaluation", () => {
       goodOutcome({ usage: { input_tokens: 512 } }),
     );
 
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     const text = await response.text();
     const payload = JSON.parse(text) as { response: { usage?: unknown } };
 
@@ -297,20 +479,20 @@ describe("a successful evaluation", () => {
       goodOutcome({ usage: { input_tokens: 0, output_tokens: 0 } }),
     );
 
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     const payload = (await response.json()) as { response: { usage?: unknown } };
     expect(payload.response.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
   });
 
   it("never lets the key appear in a success payload", async () => {
     evaluateSystemOne.mockResolvedValue(goodOutcome());
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     expect(await response.text()).not.toContain(FAKE_KEY);
   });
 
   it("marks every response no-store", async () => {
     evaluateSystemOne.mockResolvedValue(goodOutcome());
-    const ok = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const ok = await POST(safetyPost());
     expect(ok.headers.get("cache-control")).toBe("no-store, max-age=0");
 
     const bad = await POST(post("{"));
@@ -357,6 +539,7 @@ describe("a successful evaluation", () => {
       jsonPost({
         scenarioId: "municipal",
         state: getDefaultSample(municipal).state,
+        questions: municipal.questions,
       }),
     );
     expect(response.status).toBe(200);
@@ -380,7 +563,7 @@ describe("upstream failures", () => {
       // The real error class, so the message is the shipped sanitized text.
       evaluateSystemOne.mockRejectedValue(new EvaluationError(code));
 
-      const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+      const response = await POST(safetyPost());
       expect(response.status).toBe(status);
       const text = await response.text();
       expect(text).not.toContain(FAKE_KEY);
@@ -392,7 +575,7 @@ describe("upstream failures", () => {
 
   it("guides configuration on an authentication failure without naming the key", async () => {
     evaluateSystemOne.mockRejectedValue(new EvaluationError("upstream_auth"));
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     const payload = (await response.json()) as { error: { message: string } };
     expect(payload.error.message).toContain("TYPESAFE_API_KEY");
     expect(payload.error.message).not.toContain(FAKE_KEY);
@@ -417,7 +600,7 @@ describe("upstream failures", () => {
       requestedModel: "jev-requested",
     });
 
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     expect(response.status).toBe(502);
     const payload = (await response.json()) as { error: { code: string; message: string } };
     expect(payload.error.code).toBe("upstream_malformed");
@@ -427,7 +610,7 @@ describe("upstream failures", () => {
 
   it("turns an unexpected failure into a generic 500", async () => {
     evaluateSystemOne.mockRejectedValue(new Error(`boom ${FAKE_KEY}`));
-    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const response = await POST(safetyPost());
     expect(response.status).toBe(500);
     const text = await response.text();
     expect(text).not.toContain(FAKE_KEY);

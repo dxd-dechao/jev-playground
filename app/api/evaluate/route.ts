@@ -1,12 +1,12 @@
 /**
  * `POST /api/evaluate` — the only path to a real model call.
  *
- * The browser sends `{ scenarioId, state }` and nothing else. Everything that
- * costs money or carries authority stays here:
+ * The browser sends `{ scenarioId, state, questions }` and nothing else. Since
+ * JEV-03 the questions are the reviewer's edited ones; they are validated here
+ * as strictly as the State (shape, limits, duplicate ids and options) before
+ * anything reaches the adapter, and the response is checked against exactly
+ * those questions. Everything that carries authority stays here:
  *
- *  - Questions are resolved from the scenario preset **on the server**. A client
- *    cannot submit its own questions, so it cannot change what is asked or how
- *    many tokens a call consumes.
  *  - The model and the provider URL come from the server environment. A client
  *    cannot name a model, redirect the call, or supply its own credentials.
  *  - The body is read under a hard byte cap, enforced while reading rather than
@@ -27,8 +27,12 @@ import {
   resolveRequestedModel,
 } from "@/lib/evaluation";
 import { validateUpstreamResult } from "@/lib/evaluation-response";
-import { getScenario } from "@/lib/scenarios";
-import { validateEvaluateBody, validateRequest } from "@/lib/schemas";
+import {
+  describeDuplicateKey,
+  findDuplicateRequestKeys,
+  validateEvaluateBody,
+  validatePlaygroundRequest,
+} from "@/lib/schemas";
 import type {
   EvaluationErrorCode,
   EvaluationErrorPayload,
@@ -124,18 +128,25 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse("invalid_request", body.errors.join("; "));
   }
 
-  // The body schema accepts only the known scenario ids, so an unknown one has
-  // already been rejected above as an invalid request.
-  const { scenarioId, state } = body.value;
+  // `JSON.parse` keeps the last of two equal keys, so a repeated question id or
+  // Choice option would otherwise be dropped without a word. Refuse instead.
+  const duplicates = findDuplicateRequestKeys(read.text);
+  if (duplicates.length > 0) {
+    return errorResponse(
+      "invalid_request",
+      duplicates.map(describeDuplicateKey).join("; "),
+    );
+  }
 
-  // Questions are the preset's, resolved here. This is the same object the
-  // browser renders read-only, so the displayed request matches the sent one.
-  const scenario = getScenario(scenarioId);
-  const validated = validateRequest(
-    scenario.stateSchemaId,
-    state,
-    scenario.questions,
-  );
+  // The body schema accepts only the known scenario ids, so an unknown one has
+  // already been rejected above as an invalid request. The scenario id names
+  // the playground slot; it no longer chooses the questions.
+  const { state, questions } = body.value;
+
+  // The client's own edited questions, validated here exactly as the browser
+  // validated them. The values passed on are the parsed body itself, so the
+  // request the browser displays is the request that is sent.
+  const validated = validatePlaygroundRequest(state, questions);
   if (!validated.ok || validated.value === undefined) {
     return errorResponse("invalid_request", validated.errors.join("; "));
   }

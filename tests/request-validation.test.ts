@@ -7,7 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  findDuplicateRequestKeys,
   findExpectedLabelKeys,
+  presetStateIssues,
+  validatePlaygroundRequest,
+  validatePlaygroundState,
   validateQuestion,
   validateQuestions,
   validateEvaluateBody,
@@ -43,6 +47,13 @@ describe("question shape validation", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.errors.join(" ")).toMatch(/threshold/);
+  });
+
+  it("names the problem when instructions are blank, rather than a bare 'Invalid input'", () => {
+    const result = validateQuestion({ type: "noul", instructions: "  " });
+    expect(result.errors).toEqual([
+      "instructions: must not be empty: use non-blank text, an object with at least one field, or a non-empty array",
+    ]);
   });
 
   it("rejects empty instructions in every form", () => {
@@ -333,46 +344,59 @@ describe("validation never rewrites content", () => {
 /**
  * The evaluate endpoint's body: the narrowest thing that can be sent.
  *
- * Anything a client could add here — questions, a model, a provider URL, a key,
- * an expected label — must be refused, because accepting it would move a
- * server-owned decision into the browser.
+ * Since JEV-03 that is `{ scenarioId, state, questions }` — the questions are
+ * the reviewer's own. Anything else a client could add — a model, a provider
+ * URL, a key, an expected label — must be refused, because accepting it would
+ * move a server-owned decision into the browser.
  */
 describe("evaluate request body", () => {
-  it("accepts exactly a known scenario id and a state", () => {
+  it("accepts exactly a known scenario id, a state, and questions", () => {
     const result = validateEvaluateBody({
       scenarioId: "safety",
       state: { anything: true },
+      questions: { q: { type: "noul", instructions: "Is it?" } },
     });
     expect(result.errors).toEqual([]);
-    expect(result.value).toEqual({ scenarioId: "safety", state: { anything: true } });
+    expect(result.value).toEqual({
+      scenarioId: "safety",
+      state: { anything: true },
+      questions: { q: { type: "noul", instructions: "Is it?" } },
+    });
   });
 
   it("accepts both shipped scenarios and nothing else", () => {
     for (const scenario of SCENARIOS) {
-      expect(validateEvaluateBody({ scenarioId: scenario.id, state: {} }).ok).toBe(true);
+      expect(
+        validateEvaluateBody({ scenarioId: scenario.id, state: {}, questions: {} }).ok,
+      ).toBe(true);
     }
-    expect(validateEvaluateBody({ scenarioId: "safety ", state: {} }).ok).toBe(false);
-    expect(validateEvaluateBody({ scenarioId: "SAFETY", state: {} }).ok).toBe(false);
-    expect(validateEvaluateBody({ scenarioId: "", state: {} }).ok).toBe(false);
+    for (const scenarioId of ["safety ", "SAFETY", "", "medical"]) {
+      expect(validateEvaluateBody({ scenarioId, state: {}, questions: {} }).ok).toBe(false);
+    }
   });
 
   it("covers every shipped scenario id, so no scenario is unreachable", () => {
     // The schema cannot import the scenario list without a cycle, so the two
     // must be asserted equal here rather than assumed to agree.
     const accepted = SCENARIOS.filter(
-      (scenario) => validateEvaluateBody({ scenarioId: scenario.id, state: {} }).ok,
+      (scenario) =>
+        validateEvaluateBody({ scenarioId: scenario.id, state: {}, questions: {} }).ok,
     );
     expect(accepted.length).toBe(SCENARIOS.length);
   });
 
-  it("requires state to be present, even as null", () => {
-    expect(validateEvaluateBody({ scenarioId: "safety" }).ok).toBe(false);
-    expect(validateEvaluateBody({ scenarioId: "safety", state: null }).ok).toBe(true);
+  it("requires state and questions to be present; their content is checked afterwards", () => {
+    expect(validateEvaluateBody({ scenarioId: "safety", questions: {} }).ok).toBe(false);
+    const missingQuestions = validateEvaluateBody({ scenarioId: "safety", state: "hi" });
+    expect(missingQuestions.ok).toBe(false);
+    expect(missingQuestions.errors.join(" ")).toMatch(/questions/);
+    expect(
+      validateEvaluateBody({ scenarioId: "safety", state: null, questions: null }).ok,
+    ).toBe(true);
   });
 
   it("rejects every extra field", () => {
     for (const extra of [
-      { questions: {} },
       { model: "jev-latest" },
       { baseURL: "https://attacker.example" },
       { apiKey: "sk-not-a-real-key" },
@@ -382,6 +406,7 @@ describe("evaluate request body", () => {
       const result = validateEvaluateBody({
         scenarioId: "safety",
         state: {},
+        questions: {},
         ...extra,
       });
       expect(result.ok, Object.keys(extra)[0]).toBe(false);
@@ -392,5 +417,134 @@ describe("evaluate request body", () => {
     for (const body of [null, "safety", 7, [], undefined]) {
       expect(validateEvaluateBody(body).ok).toBe(false);
     }
+  });
+});
+
+/**
+ * Validation of an edited request (JEV-03). State is no longer forced through
+ * a preset schema, so a Text State or a custom shape is legitimate; the API
+ * contract and the expected-label guard still hold.
+ */
+describe("playground request validation", () => {
+  const noul = { q: { type: "noul", instructions: "Is it about printing?" } };
+
+  it("accepts a Text State, including one the preset schema would reject", () => {
+    const text = "  My printer jams on page two.\n";
+    const result = validatePlaygroundRequest(text, noul);
+    expect(result.errors).toEqual([]);
+    // Byte-for-byte: never trimmed.
+    expect(result.value?.state).toBe(text);
+    // The preset validator still exists for preset-shaped State, and is the
+    // one that would have refused this.
+    expect(validateState("safety", text).ok).toBe(false);
+  });
+
+  it("accepts object and array State of any shape", () => {
+    expect(validatePlaygroundState({ ticket: { id: 7 } }).errors).toEqual([]);
+    expect(validatePlaygroundState([{ role: "user", text: "hi" }]).errors).toEqual([]);
+  });
+
+  it("rejects null, numbers, booleans, and empty State", () => {
+    for (const state of [null, 0, 42, true, false, undefined, "", " \n", {}, []]) {
+      expect(validatePlaygroundState(state).ok, JSON.stringify(state)).toBe(false);
+    }
+  });
+
+  it("keeps rejecting expected labels in object and array State", () => {
+    expect(validatePlaygroundState({ message: "x", expected_handling: "allow" }).ok).toBe(
+      false,
+    );
+    const nested = validatePlaygroundState([{ turns: [{ ground_truth: "LTA" }] }]);
+    expect(nested.ok).toBe(false);
+    expect(nested.errors.join(" ")).toMatch(/expected labels/);
+    // A string cannot carry a key; the word "label" inside text is just text.
+    expect(validatePlaygroundState("the expected label is allow").ok).toBe(true);
+  });
+
+  it("validates arbitrary questions against the API limits", () => {
+    expect(validatePlaygroundRequest("text", {}).ok).toBe(false);
+    expect(
+      validatePlaygroundRequest("text", {
+        rate: { type: "score", instructions: "Rate.", criteria: ["only one"] },
+      }).ok,
+    ).toBe(false);
+    expect(
+      validatePlaygroundRequest("text", {
+        pick: { type: "choice", instructions: "Pick.", criteria: { a: null, b: "B" } },
+        rate: { type: "score", instructions: { task: "Rate." }, criteria: ["Low", "High"] },
+        yes: { type: "noul", instructions: "Yes?", criteria: { true: { means: "y" } } },
+      }).errors,
+    ).toEqual([]);
+  });
+
+  it("returns the very values it was given", () => {
+    const state = { a: 1 };
+    const questions = { ...noul };
+    const result = validatePlaygroundRequest(state, questions);
+    expect(result.value?.state).toBe(state);
+    expect(result.value?.questions).toBe(questions);
+  });
+
+  it("reports preset-shape departures as advice, not as a validation failure", () => {
+    const custom = { student_message: "Only this" };
+    expect(presetStateIssues("safety", custom).join(" ")).toMatch(/learning_context/);
+    expect(validatePlaygroundState(custom).ok).toBe(true);
+    for (const scenario of SCENARIOS) {
+      for (const sample of scenario.samples) {
+        expect(presetStateIssues(scenario.stateSchemaId, sample.state)).toEqual([]);
+      }
+    }
+  });
+});
+
+describe("duplicate keys in raw request JSON", () => {
+  it("finds a repeated question id that JSON.parse would silently drop", () => {
+    const text =
+      '{"state":"x","questions":{"q":{"type":"noul","instructions":"A"},' +
+      '"q":{"type":"noul","instructions":"B"}}}';
+    expect(Object.keys((JSON.parse(text) as { questions: object }).questions)).toEqual([
+      "q",
+    ]);
+    expect(findDuplicateRequestKeys(text)).toEqual([{ path: "questions", key: "q" }]);
+  });
+
+  it("finds a repeated Choice option key", () => {
+    const text = `{
+      "state": "x",
+      "questions": {
+        "pick": { "type": "choice", "instructions": "Pick.",
+                  "criteria": { "a": "one", "b": null, "a": "two" } }
+      }
+    }`;
+    expect(findDuplicateRequestKeys(text)).toEqual([
+      { path: "questions.pick.criteria", key: "a" },
+    ]);
+  });
+
+  it("ignores equal keys in different objects and duplicates outside its scope", () => {
+    const text = JSON.stringify({
+      state: { a: { q: 1 }, b: { q: 2 } },
+      questions: {
+        one: { type: "choice", instructions: "x", criteria: { a: null, b: null } },
+        two: { type: "choice", instructions: "x", criteria: { a: null, b: null } },
+      },
+    });
+    expect(findDuplicateRequestKeys(text)).toEqual([]);
+    expect(findDuplicateRequestKeys('{"state":{"k":1,"k":2},"questions":{}}')).toEqual([]);
+  });
+
+  it("is not fooled by escaped quotes or keys inside string values", () => {
+    const text =
+      '{"state":"\\"questions\\": {\\"q\\":1,\\"q\\":2}","questions":' +
+      '{"say \\"hi\\"":{"type":"noul","instructions":"q"},"q":{"type":"noul","instructions":"q"}}}';
+    expect(() => JSON.parse(text) as unknown).not.toThrow();
+    expect(findDuplicateRequestKeys(text)).toEqual([]);
+  });
+
+  it("tracks paths through arrays without confusing indices for keys", () => {
+    const text =
+      '{"questions":{"s":{"type":"score","instructions":"x",' +
+      '"criteria":[{"a":1,"a":2},"b"]}},"state":[{"q":1},{"q":2}]}';
+    expect(findDuplicateRequestKeys(text)).toEqual([]);
   });
 });

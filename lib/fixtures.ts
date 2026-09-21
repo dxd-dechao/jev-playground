@@ -15,14 +15,22 @@
  * exact equality against a known sample State, never derived from the text. No
  * keyword heuristic classifies your input. If the submitted State does not
  * exactly match a sample, a clearly labelled generic placeholder is shown
- * instead.
+ * instead. Every fixture answers the scenario's *default* questions; once the
+ * questions are edited there is no fixture at all (`resolveFixtureForRequest`
+ * returns null), never an old answer relabelled as an answer to new criteria.
  *
  * Fixtures carry no `model` and no `usage`, so fabricated telemetry cannot be
  * rendered as if it had been measured.
  */
 
 import type { ScenarioId } from "./scenarios";
-import type { Answers, EvaluationResponse, State } from "./types";
+import type {
+  Answers,
+  EvaluationRequest,
+  EvaluationResponse,
+  Questions,
+  State,
+} from "./types";
 import { SCENARIOS } from "./scenarios";
 
 export type FixtureKind = "sample" | "generic";
@@ -442,6 +450,38 @@ export function matchSampleId(
     deepEqual(sample.state, state),
   );
   return match ? match.id : null;
+}
+
+/**
+ * Whether `questions` are exactly this scenario's default question definitions:
+ * the same ids, types, instructions, and criteria (key order aside).
+ *
+ * Fixtures were written as answers to these definitions, and the preset
+ * composition code reads answers by these ids with these meanings. Anything
+ * else — a renamed id, an added option, reworded criteria, an extra question —
+ * is a different question, and neither a fixture nor the composition applies.
+ */
+export function questionsMatchPreset(
+  scenarioId: ScenarioId,
+  questions: Questions,
+): boolean {
+  const scenario = SCENARIOS.find((candidate) => candidate.id === scenarioId);
+  return scenario !== undefined && deepEqual(questions, scenario.questions);
+}
+
+/**
+ * The fixture for a whole edited request, or `null` when none exists.
+ *
+ * Only a request that still asks the scenario's default questions has one.
+ * For changed questions there is no hand-written answer, and substituting one
+ * would present old answers as answers to new criteria, so nothing is returned.
+ */
+export function resolveFixtureForRequest(
+  scenarioId: ScenarioId,
+  request: EvaluationRequest,
+): FixtureResult | null {
+  if (!questionsMatchPreset(scenarioId, request.questions)) return null;
+  return resolveFixture(scenarioId, request.state);
 }
 
 /**

@@ -18,6 +18,7 @@
  */
 
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { getDefaultSample, getScenario } from "../lib/scenarios";
 
 /** Recorded in the report so a reader cannot mistake these for real calls. */
 const MOCKED = {
@@ -258,10 +259,19 @@ test("renders a successful live result with its real measurements", async ({
   await page.getByTestId("evaluate-live").click();
   await expect(page.getByTestId("live-badge")).toBeVisible();
 
-  // Exactly one call for one press, carrying only the two allowed fields.
+  // Exactly one call for one press, carrying only the three allowed fields:
+  // the request on screen, and no model, provider, or key.
   expect(evaluate.requests.length).toBe(1);
-  expect(Object.keys(evaluate.requests[0]!).sort()).toEqual(["scenarioId", "state"]);
+  expect(Object.keys(evaluate.requests[0]!).sort()).toEqual([
+    "questions",
+    "scenarioId",
+    "state",
+  ]);
   expect(evaluate.requests[0]!.scenarioId).toBe("safety");
+  expect(evaluate.requests[0]!.questions).toEqual(getScenario("safety").questions);
+  expect(evaluate.requests[0]!.state).toEqual(
+    getDefaultSample(getScenario("safety")).state,
+  );
 
   await expect(page.getByTestId("result-source")).toHaveText("Source: live");
   await expect(page.getByTestId("fixture-badge")).toHaveCount(0);
@@ -509,7 +519,7 @@ test("marks a live result stale after an edit instead of reattaching it", async 
 
   await expect(page.getByTestId("stale-warning")).toBeVisible();
   await expect(page.getByTestId("stale-warning")).toContainText(
-    "spend another call on the new State",
+    "spend another call on the new request",
   );
   // The result itself is unchanged: it still belongs to what was submitted.
   await page.getByTestId("view-json").click();

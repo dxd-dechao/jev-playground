@@ -5,8 +5,10 @@
  *  1. The *question* shape, against the constraints in the saved API snapshot
  *     (`../references/sources/typesafe-api.md`). Score accepts 2-10 levels;
  *     Choice accepts up to 255 options and needs at least 2 to be a choice.
- *  2. The *State* shape, per scenario, because each preset's questions refer to
- *     named State fields.
+ *  2. The *State*: any string, object, or array the API accepts
+ *     (`validatePlaygroundState`). Each preset's named-field schema is kept, but
+ *     since JEV-03 made the questions editable it is advisory for the browser
+ *     (`presetStateIssues`) rather than a gate on what may be sent.
  *
  * A third check has nothing to do with the API: submitted State must not carry
  * the expected label for a sample. Expected outcomes live in sample metadata so
@@ -34,16 +36,28 @@ function nonBlankString(message: string): z.ZodType<string> {
   });
 }
 
-/** `instructions` / criteria bodies: a non-empty string, object, or array. */
-const instructionsSchema: z.ZodType<unknown> = z.union([
-  nonBlankString("instructions must not be empty"),
-  z.array(z.unknown()).min(1, "instructions array must not be empty"),
-  z
-    .record(z.string(), z.unknown())
-    .refine((value) => Object.keys(value).length > 0, {
-      message: "instructions object must have at least one field",
-    }),
-]);
+/**
+ * `instructions` / criteria bodies: a non-empty string, object, or array.
+ *
+ * The union carries its own message because, when no member matches, Zod
+ * reports only a bare "Invalid input" — which tells a reviewer editing a blank
+ * level or instruction nothing about what to fix.
+ */
+const instructionsSchema: z.ZodType<unknown> = z.union(
+  [
+    nonBlankString("instructions must not be empty"),
+    z.array(z.unknown()).min(1, "instructions array must not be empty"),
+    z
+      .record(z.string(), z.unknown())
+      .refine((value) => Object.keys(value).length > 0, {
+        message: "instructions object must have at least one field",
+      }),
+  ],
+  {
+    error:
+      "must not be empty: use non-blank text, an object with at least one field, or a non-empty array",
+  },
+);
 
 const noulQuestionSchema = z.strictObject({
   type: z.literal("noul"),
@@ -283,19 +297,198 @@ export function validateState(
   return { ok: true, errors: [], value: input as State };
 }
 
+/* ------------------------------------------- Playground (any) request -- */
+
+/**
+ * Validate a State the playground may send, whatever its shape.
+ *
+ * Since JEV-03 a reviewer can edit the questions, so State is no longer forced
+ * through a preset's named-field schema: a Text State or a differently shaped
+ * object is legitimate input for custom questions. What is enforced is the API
+ * contract (a string, object, or array — never null, a number, or a boolean),
+ * that there is something to evaluate, and — for structured State — that no
+ * expected label rides along. Strings are checked, never trimmed.
+ */
+export function validatePlaygroundState(input: unknown): ValidationResult<State> {
+  const errors: string[] = [];
+  if (typeof input === "string") {
+    if (input.trim().length === 0) errors.push("State text must not be empty");
+  } else if (Array.isArray(input)) {
+    if (input.length === 0) errors.push("a State array must not be empty");
+  } else if (input !== null && typeof input === "object") {
+    if (Object.keys(input).length === 0) {
+      errors.push("a State object must have at least one field");
+    }
+  } else {
+    const kind = input === null ? "null" : typeof input;
+    errors.push(
+      `State must be a string, an object, or an array; ${kind} is not accepted`,
+    );
+    return { ok: false, errors };
+  }
+
+  const leaked = findExpectedLabelKeys(input);
+  if (leaked.length > 0) {
+    errors.push(
+      `State must not contain expected labels; remove: ${leaked.join(", ")}`,
+    );
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+  // The input itself, never a parsed copy: what is sent is what was validated.
+  return { ok: true, errors: [], value: input as State };
+}
+
+/**
+ * Validate an edited `{ state, questions }` pair. Used by the browser before
+ * enabling submission and by the route before anything reaches the adapter.
+ */
+export function validatePlaygroundRequest(
+  state: unknown,
+  questions: unknown,
+): ValidationResult<{ state: State; questions: Questions }> {
+  const stateResult = validatePlaygroundState(state);
+  const questionsResult = validateQuestions(questions);
+  const errors = [
+    ...stateResult.errors.map((message) => `state — ${message}`),
+    ...questionsResult.errors.map((message) => `questions — ${message}`),
+  ];
+  if (errors.length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    errors: [],
+    value: {
+      state: stateResult.value as State,
+      questions: questionsResult.value as Questions,
+    },
+  };
+}
+
+/**
+ * Where a State departs from the shape a preset's default questions refer to.
+ *
+ * Advisory only. The preset schemas describe the named fields the default
+ * questions read (`student_message`, `agency_config.agencies`, ...); a State
+ * without them is still a valid request, it just gives those questions less to
+ * work with. Expected labels are handled by `validatePlaygroundState`, not here.
+ */
+export function presetStateIssues(
+  schemaId: StateSchemaId,
+  input: unknown,
+): string[] {
+  const result = stateSchemas[schemaId].safeParse(input);
+  return result.success ? [] : formatIssues(result.error);
+}
+
+/* ------------------------------------------ Duplicate JSON object keys -- */
+
+export interface DuplicateKey {
+  /** Where the duplicated key sits: `questions`, or `questions.<id>.criteria`. */
+  path: string;
+  key: string;
+}
+
+/**
+ * Find duplicated question ids and Choice option keys in raw JSON text.
+ *
+ * `JSON.parse` silently keeps the last of two equal keys, which would turn a
+ * duplicated question or option into a quietly dropped one. This scanner walks
+ * already-valid JSON text token by token — no evaluation, and no second parser
+ * for values — and reports a repeated key in `questions` or in any
+ * `questions.<id>.criteria` object. Duplicates elsewhere are left to
+ * `JSON.parse`, deliberately: this check is scoped to the request's own keys.
+ *
+ * Call it only on text that `JSON.parse` has accepted.
+ */
+export function findDuplicateRequestKeys(text: string): DuplicateKey[] {
+  interface Frame {
+    kind: "object" | "array";
+    path: string[];
+    keys: Set<string>;
+    expectKey: boolean;
+    pendingKey: string | null;
+    index: number;
+  }
+  const stack: Frame[] = [];
+  const found: DuplicateKey[] = [];
+
+  const isTracked = (path: string[]) =>
+    (path.length === 1 && path[0] === "questions") ||
+    (path.length === 3 && path[0] === "questions" && path[2] === "criteria");
+
+  const childPath = (): string[] => {
+    const top = stack[stack.length - 1];
+    if (!top) return [];
+    if (top.kind === "object") return [...top.path, top.pendingKey ?? ""];
+    return [...top.path, String(top.index)];
+  };
+
+  let i = 0;
+  while (i < text.length) {
+    const char = text[i];
+    if (char === "{" || char === "[") {
+      stack.push({
+        kind: char === "{" ? "object" : "array",
+        path: childPath(),
+        keys: new Set(),
+        expectKey: char === "{",
+        pendingKey: null,
+        index: 0,
+      });
+      i += 1;
+    } else if (char === "}" || char === "]") {
+      stack.pop();
+      i += 1;
+    } else if (char === ",") {
+      const top = stack[stack.length - 1];
+      if (top?.kind === "object") top.expectKey = true;
+      else if (top) top.index += 1;
+      i += 1;
+    } else if (char === '"') {
+      let end = i + 1;
+      while (end < text.length && text[end] !== '"') {
+        end += text[end] === "\\" ? 2 : 1;
+      }
+      const top = stack[stack.length - 1];
+      if (top?.kind === "object" && top.expectKey) {
+        const key = JSON.parse(text.slice(i, end + 1)) as string;
+        if (top.keys.has(key) && isTracked(top.path)) {
+          found.push({ path: top.path.join("."), key });
+        }
+        top.keys.add(key);
+        top.pendingKey = key;
+        top.expectKey = false;
+      }
+      i = end + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return found;
+}
+
+/** A duplicate key as one reviewer-facing message. */
+export function describeDuplicateKey(duplicate: DuplicateKey): string {
+  return duplicate.path === "questions"
+    ? `questions — the question id "${duplicate.key}" appears more than once`
+    : `${duplicate.path} — the option "${duplicate.key}" appears more than once`;
+}
+
 /* ------------------------------------------------ Server request body -- */
 
 /**
- * The only body `POST /api/evaluate` accepts.
+ * The only body `POST /api/evaluate` accepts: `{ scenarioId, state, questions }`.
  *
  * `strictObject` is the point: an unknown field is an error, not something to
- * ignore. A client cannot add `model`, `questions`, `baseURL`, or an API key and
- * have it silently reach the provider. `state` is accepted as unknown here and
- * validated against the scenario's own State schema afterwards.
+ * ignore. A client cannot add `model`, `baseURL`, or an API key and have it
+ * silently reach the provider. Since JEV-03 the questions are the reviewer's
+ * own and are required; `state` and `questions` are accepted as unknown here
+ * and checked by `validatePlaygroundRequest` afterwards.
  */
 export const evaluateBodySchema = z.strictObject({
   scenarioId: z.enum(["safety", "municipal"]),
   state: z.unknown(),
+  questions: z.unknown(),
 });
 
 export type EvaluateBody = z.infer<typeof evaluateBodySchema>;
@@ -305,9 +498,12 @@ export function validateEvaluateBody(
 ): ValidationResult<EvaluateBody> {
   const result = evaluateBodySchema.safeParse(input);
   if (!result.success) return { ok: false, errors: formatIssues(result.error) };
-  if (!("state" in (input as object))) {
-    return { ok: false, errors: ["state: a State is required"] };
+  const errors: string[] = [];
+  if (!("state" in (input as object))) errors.push("state: a State is required");
+  if (!("questions" in (input as object))) {
+    errors.push("questions: the questions are required");
   }
+  if (errors.length > 0) return { ok: false, errors };
   return { ok: true, errors: [], value: result.data };
 }
 
