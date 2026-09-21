@@ -102,10 +102,18 @@ export type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer;
 
 export type Answers = Record<string, Answer>;
 
-export interface Usage {
-  input_tokens: number;
-  output_tokens: number;
-}
+/**
+ * Reported token counts.
+ *
+ * The two counters are independently optional, and the union requires at least
+ * one of them: a response that reports only `input_tokens` must keep that number
+ * and leave the other field absent. Filling the gap with `0` would turn "not
+ * reported" into "reported as zero", which reads as a measurement. A genuine
+ * zero is a real count and stays zero.
+ */
+export type Usage =
+  | { input_tokens: number; output_tokens?: number }
+  | { input_tokens?: number; output_tokens: number };
 
 /**
  * A full response envelope.

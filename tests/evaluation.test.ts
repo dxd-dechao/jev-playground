@@ -393,6 +393,74 @@ describe("response validation against the submitted questions", () => {
     expect(result.value?.answers.handling).not.toHaveProperty("confidence");
   });
 
+  /**
+   * A count that was not reported must stay absent.
+   *
+   * Substituting `0` would present "we were told nothing" as "we were told zero",
+   * which is a measurement. These tests assert the *absence of a property*, not
+   * just its value, because a fabricated zero passes a value check.
+   */
+  describe("partial token usage", () => {
+    it("keeps an input-only count without inventing an output count", () => {
+      const body = safetyResponseBody();
+      (body as { usage?: unknown }).usage = { input_tokens: 12 };
+
+      const result = validateUpstreamResult(body, safety.questions);
+      expect(result.errors).toEqual([]);
+      expect(result.ok).toBe(true);
+      expect(result.value?.usage).toEqual({ input_tokens: 12 });
+      expect(result.value?.usage).not.toHaveProperty("output_tokens");
+    });
+
+    it("keeps an output-only count without inventing an input count", () => {
+      const body = safetyResponseBody();
+      (body as { usage?: unknown }).usage = { output_tokens: 7 };
+
+      const result = validateUpstreamResult(body, safety.questions);
+      expect(result.errors).toEqual([]);
+      expect(result.value?.usage).toEqual({ output_tokens: 7 });
+      expect(result.value?.usage).not.toHaveProperty("input_tokens");
+    });
+
+    it("treats an explicit null count as unreported, not as zero", () => {
+      const body = safetyResponseBody();
+      (body as { usage?: unknown }).usage = { input_tokens: 12, output_tokens: null };
+
+      const result = validateUpstreamResult(body, safety.questions);
+      expect(result.errors).toEqual([]);
+      expect(result.value?.usage).toEqual({ input_tokens: 12 });
+      expect(result.value?.usage).not.toHaveProperty("output_tokens");
+    });
+
+    it("leaves usage absent when neither count is present", () => {
+      const body = safetyResponseBody();
+      (body as { usage?: unknown }).usage = {};
+
+      const result = validateUpstreamResult(body, safety.questions);
+      expect(result.errors).toEqual([]);
+      expect(result.value?.usage).toBeUndefined();
+    });
+
+    it("keeps a genuinely reported zero as zero", () => {
+      const body = safetyResponseBody();
+      (body as { usage?: unknown }).usage = { input_tokens: 0, output_tokens: 0 };
+
+      const result = validateUpstreamResult(body, safety.questions);
+      expect(result.errors).toEqual([]);
+      // A reported zero is a real count. Only an *absent* count is unavailable.
+      expect(result.value?.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
+    });
+
+    it("still rejects a bad count rather than keeping the good one quietly", () => {
+      const body = safetyResponseBody();
+      (body as { usage?: unknown }).usage = { input_tokens: 12, output_tokens: 1.5 };
+
+      const result = validateUpstreamResult(body, safety.questions);
+      expect(result.ok).toBe(false);
+      expect(result.errors.join(" | ")).toMatch(/usage\.output_tokens/);
+    });
+  });
+
   it("preserves a choice that is not the most probable option", () => {
     const body = safetyResponseBody();
     body.answers.handling.choice = "review";

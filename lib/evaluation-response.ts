@@ -247,14 +247,25 @@ function checkAnswer(
   }
 }
 
-/** Token counts, when present, must be nonnegative whole numbers. */
+/**
+ * Token counts, when present, must be nonnegative whole numbers.
+ *
+ * Each counter is handled on its own. A count that was reported is kept exactly
+ * as received; a count that was absent, null, or rejected stays absent, so the
+ * field renders as Unavailable rather than as `0`. The two cases are not the
+ * same thing and must not look the same: `0` is a measurement.
+ *
+ * A partial report is still worth keeping — one real number beats discarding it
+ * because its neighbour was missing.
+ */
 function checkUsage(raw: unknown, errors: string[]): Usage | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (!isRecord(raw)) {
     errors.push("usage: must be an object when present");
     return undefined;
   }
-  const counts: Partial<Usage> = {};
+
+  const counts: { input_tokens?: number; output_tokens?: number } = {};
   for (const field of ["input_tokens", "output_tokens"] as const) {
     const value = raw[field];
     if (value === undefined || value === null) continue;
@@ -269,14 +280,17 @@ function checkUsage(raw: unknown, errors: string[]): Usage | undefined {
     }
     counts[field] = value;
   }
-  if (counts.input_tokens === undefined && counts.output_tokens === undefined) {
-    // Nothing usable was reported. Absent beats a fabricated zero.
-    return undefined;
+
+  // Written as three positive cases so each returned object carries only the
+  // fields that were actually reported.
+  const { input_tokens, output_tokens } = counts;
+  if (input_tokens !== undefined && output_tokens !== undefined) {
+    return { input_tokens, output_tokens };
   }
-  return {
-    input_tokens: counts.input_tokens ?? 0,
-    output_tokens: counts.output_tokens ?? 0,
-  };
+  if (input_tokens !== undefined) return { input_tokens };
+  if (output_tokens !== undefined) return { output_tokens };
+  // Nothing usable was reported. Absent beats a fabricated zero.
+  return undefined;
 }
 
 /**

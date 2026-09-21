@@ -276,6 +276,32 @@ describe("a successful evaluation", () => {
     expect(payload.response).not.toHaveProperty("usage");
   });
 
+  it("returns a partial usage report without filling in the missing count", async () => {
+    evaluateSystemOne.mockResolvedValue(
+      goodOutcome({ usage: { input_tokens: 512 } }),
+    );
+
+    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const text = await response.text();
+    const payload = JSON.parse(text) as { response: { usage?: unknown } };
+
+    // The reported count survives; the unreported one is absent from the JSON
+    // rather than serialized as 0, which would read as a measurement.
+    expect(payload.response.usage).toEqual({ input_tokens: 512 });
+    expect(payload.response.usage).not.toHaveProperty("output_tokens");
+    expect(text).not.toContain("output_tokens");
+  });
+
+  it("keeps a reported zero count as zero", async () => {
+    evaluateSystemOne.mockResolvedValue(
+      goodOutcome({ usage: { input_tokens: 0, output_tokens: 0 } }),
+    );
+
+    const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));
+    const payload = (await response.json()) as { response: { usage?: unknown } };
+    expect(payload.response.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
+  });
+
   it("never lets the key appear in a success payload", async () => {
     evaluateSystemOne.mockResolvedValue(goodOutcome());
     const response = await POST(jsonPost({ scenarioId: "safety", state: safetyState }));

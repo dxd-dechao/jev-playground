@@ -148,6 +148,21 @@ async function mockEvaluate(
   return { requests, release };
 }
 
+/**
+ * The value cell of one measurement row.
+ *
+ * Asserting on the whole block is too weak for token counts: "Unavailable" is
+ * always present there because Cost is always unavailable, so a block-level
+ * check would pass even if a count rendered a fabricated `0`.
+ */
+function measurementValue(page: Page, field: string) {
+  return page
+    .getByTestId("measurement-block")
+    .locator("div")
+    .filter({ has: page.locator(`dt:text-is("${field}")`) })
+    .locator("dd");
+}
+
 async function goLive(page: Page) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Jev playground" })).toBeVisible();
@@ -310,8 +325,62 @@ test("renders a live result whose response omitted usage and confidence", async 
   await expect(page.getByTestId("answer-self_harm_context")).toContainText(
     "Unavailable",
   );
-  await expect(page.getByTestId("measurement-block")).toContainText("Unavailable");
+  await expect(measurementValue(page, "Input tokens")).toHaveText("Unavailable");
+  await expect(measurementValue(page, "Output tokens")).toHaveText("Unavailable");
   await expect(page.getByTestId("safety-recommendation")).toHaveText("Allow");
+});
+
+test("shows a reported token count beside Unavailable for the one not reported", async ({
+  page,
+}) => {
+  await mockConfig(page, true);
+  await mockEvaluate(page, () => ({
+    status: 200,
+    json: livePayload(SAFETY_ANSWERS, {
+      response: {
+        model: "jev-1-mocked",
+        answers: SAFETY_ANSWERS,
+        // Only one counter reported, which is a shape the API permits.
+        usage: { input_tokens: 512 },
+      },
+    }),
+  }));
+  await goLive(page);
+
+  await page.getByTestId("evaluate-live").click();
+  await expect(page.getByTestId("live-badge")).toBeVisible();
+
+  // The real number is kept, and the absent one says so rather than showing 0.
+  await expect(measurementValue(page, "Input tokens")).toHaveText("512");
+  await expect(measurementValue(page, "Output tokens")).toHaveText("Unavailable");
+
+  // The JSON view must agree: no fabricated counter appears there either.
+  await page.getByTestId("view-json").click();
+  const json = await page.getByTestId("response-json").innerText();
+  expect(json).toContain('"input_tokens": 512');
+  expect(json).not.toContain("output_tokens");
+});
+
+test("shows a genuinely reported zero as zero, not as Unavailable", async ({ page }) => {
+  await mockConfig(page, true);
+  await mockEvaluate(page, () => ({
+    status: 200,
+    json: livePayload(SAFETY_ANSWERS, {
+      response: {
+        model: "jev-1-mocked",
+        answers: SAFETY_ANSWERS,
+        usage: { input_tokens: 640, output_tokens: 0 },
+      },
+    }),
+  }));
+  await goLive(page);
+
+  await page.getByTestId("evaluate-live").click();
+  await expect(page.getByTestId("live-badge")).toBeVisible();
+
+  // A reported zero is a measurement and must survive the rendering path.
+  await expect(measurementValue(page, "Output tokens")).toHaveText("0");
+  await expect(measurementValue(page, "Input tokens")).toHaveText("640");
 });
 
 test("shows a loading state and refuses a second click while one call is in flight", async ({

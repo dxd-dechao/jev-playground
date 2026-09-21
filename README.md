@@ -235,8 +235,12 @@ mistake for a measurement.
 | **Choice** | `choice` + `probabilities` + optional `confidence` | `criteria` is an option → rubric map, up to 255 options. |
 | **Score** | `score` + `legend` + `probabilities` + optional `confidence` | `criteria` is an ordered array of 2–10 levels. A score can land between levels. |
 
-`confidence` and `usage` are optional in a real response. When they are absent the card reads
-*Unavailable* — no stand-in number is substituted, and nothing fails to render.
+`confidence` and `usage` are optional in a real response, and the two token counts inside
+`usage` are independently optional. When something is absent the card reads *Unavailable* —
+no stand-in number is substituted, and nothing fails to render. In particular an unreported
+token count is never shown as `0`, because `0` is a count that was reported. A response that
+carries only `input_tokens` shows that number beside an *Unavailable* output count, and the
+response JSON omits the field rather than inventing it.
 
 Question **ids are keys you choose**. They are not sent to the model and play no part in
 inference, so every question must be self-contained — it cannot refer to another question,

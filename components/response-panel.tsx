@@ -135,13 +135,17 @@ function MeasurementRow({ field, value }: { field: string; value: string }) {
  *
  * Fixture mode: every field is "Unavailable", because no call happened.
  * Live mode: the duration was measured around the call, the resolved model is
- * the one TypeSafe reported, and tokens appear only if the response carried
- * them. Cost is always "Unavailable" — the API documents no cost field, and a
- * computed estimate here would be a guess wearing a measurement's clothes.
+ * the one TypeSafe reported, and each token count appears only if the response
+ * carried that count — separately, so a response reporting one of the two shows
+ * the real number beside an honest "Unavailable" instead of a zero. Cost is
+ * always "Unavailable" — the API documents no cost field, and a computed
+ * estimate here would be a guess wearing a measurement's clothes.
  */
 function Measurement({ result }: { result: PlaygroundResult }) {
   const live = result.source === "live" ? result.live : null;
   const usage = live?.response.usage;
+  const inputTokens = usage?.input_tokens;
+  const outputTokens = usage?.output_tokens;
 
   return (
     <div className="mt-4 rounded-lg border border-[var(--color-line)] p-3">
@@ -162,11 +166,11 @@ function Measurement({ result }: { result: PlaygroundResult }) {
         />
         <MeasurementRow
           field="Input tokens"
-          value={usage ? String(usage.input_tokens) : "Unavailable"}
+          value={inputTokens === undefined ? "Unavailable" : String(inputTokens)}
         />
         <MeasurementRow
           field="Output tokens"
-          value={usage ? String(usage.output_tokens) : "Unavailable"}
+          value={outputTokens === undefined ? "Unavailable" : String(outputTokens)}
         />
         <MeasurementRow
           field="Evaluation call duration"
@@ -180,9 +184,12 @@ function Measurement({ result }: { result: PlaygroundResult }) {
             Duration is wall time measured around the evaluation call only, so it
             includes network time and excludes rendering. Cost is unavailable
             because the API documents no cost field; nothing here is an estimate.
-            {usage
-              ? null
-              : " This response carried no token counts, so none are shown."}
+            {inputTokens === undefined && outputTokens === undefined
+              ? " This response carried no token counts, so none are shown."
+              : inputTokens === undefined || outputTokens === undefined
+                ? " This response reported only one of the two token counts. " +
+                  "The other is unavailable, not zero."
+                : null}
           </>
         ) : (
           "No request was sent, so there is nothing to measure."
@@ -523,9 +530,10 @@ export function ResponsePanel({
                 ) : (
                   <>
                     The response as it was received, after being checked against
-                    the questions that were submitted. <code>usage</code> appears
-                    only if TypeSafe returned it. The cards above render exactly
-                    these values.
+                    the questions that were submitted. <code>usage</code> and each
+                    token count inside it appear only if TypeSafe returned them,
+                    so an absent count is missing here rather than zero. The cards
+                    above render exactly these values.
                   </>
                 )}
               </p>
