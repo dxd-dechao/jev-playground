@@ -507,6 +507,22 @@ export function validateEvaluateBody(
   return { ok: true, errors: [], value: result.data };
 }
 
+/**
+ * The only body `POST /api/unlock` accepts: `{ password }`. A password on the
+ * evaluate body is still rejected — evaluate never carries credentials.
+ */
+export const unlockBodySchema = z.strictObject({
+  password: z.string(),
+});
+
+export type UnlockBody = z.infer<typeof unlockBodySchema>;
+
+export function validateUnlockBody(input: unknown): ValidationResult<UnlockBody> {
+  const result = unlockBodySchema.safeParse(input);
+  if (!result.success) return { ok: false, errors: formatIssues(result.error) };
+  return { ok: true, errors: [], value: result.data };
+}
+
 /** Validate a whole `{ state, questions }` pair before enabling a preview. */
 export function validateRequest(
   schemaId: StateSchemaId,

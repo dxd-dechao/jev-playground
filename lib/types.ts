@@ -173,6 +173,8 @@ export type EvaluationErrorCode =
   | "not_configured"
   | "invalid_request"
   | "payload_too_large"
+  | "unauthorized"
+  | "gate_misconfigured"
   | "upstream_auth"
   | "upstream_rate_limit"
   | "upstream_timeout"
@@ -188,9 +190,29 @@ export interface EvaluationErrorPayload {
   };
 }
 
-/** `GET /api/config`. `configured` means a key is present, nothing more. */
+/**
+ * Password-gate state for the browser. `open` is the local default: no shared
+ * password is configured. Missing `access` on a mocked config payload is treated
+ * as `open` so existing fixtures of `{ configured: true }` keep working.
+ */
+export type PlaygroundAccess = "open" | "required" | "granted";
+
+/**
+ * `GET /api/config`. `configured` means a key is present, nothing more.
+ * `access` is the playground password gate, never a password, hash, cookie, or
+ * key material.
+ */
 export interface ConfigPayload {
   configured: boolean;
+  access: PlaygroundAccess;
+}
+
+/** Missing or unknown `access` is treated as open so mocked `{ configured: true }` keeps working. */
+export function playgroundAccessFromConfig(payload: unknown): PlaygroundAccess {
+  if (typeof payload !== "object" || payload === null) return "open";
+  const access = (payload as { access?: unknown }).access;
+  if (access === "required" || access === "granted" || access === "open") return access;
+  return "open";
 }
 
 /**
