@@ -109,7 +109,4 @@ source ID appears exactly once after adaptation.
 
 ## Commit SHA
 
-Recorded after `git commit` on `codex/jev-04-municipal`: see the line below
-once the municipal ownership set is committed.
-
-Pending — filled immediately after the municipal commit.
+`fe57cff85f3e275c0b804d0b3d0a656f3c156aed` on `codex/jev-04-municipal`.
