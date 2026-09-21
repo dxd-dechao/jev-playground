@@ -136,6 +136,14 @@ body {
     box-shadow: 3px 3px 0 var(--color-danger);
   }
 
+  /* The three Evaluate actions wrap on a narrow screen. */
+  .submit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   /* The one primary submission button. */
   .btn-primary {
     display: inline-flex;

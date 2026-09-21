@@ -16,12 +16,13 @@
  *    preset is explicitly reset.
  *
  * Sample buttons replace State only and keep the questions; Reset restores the
- * whole preset. The one action, Evaluate with Jev, spends a real model call;
- * beside it this panel shows only what blocks it (configuration, an invalid
+ * whole preset. Three actions sit in the submit area: Evaluate with Jev,
+ * Evaluate with LLM, and Evaluate with both. Beside them this panel shows only
+ * what blocks them (TypeSafe configuration, a missing Moonshot key, an invalid
  * request). Nothing here submits anything on its own — typing, choosing a
  * sample, resetting, and switching State format or view never trigger a call.
- * Cmd/Ctrl+Enter is handled by the page and obeys the same guards as the
- * button.
+ * Cmd/Ctrl+Enter is handled by the page and obeys the same guards as Evaluate
+ * with Jev.
  */
 
 import { useEffect, useId, useRef } from "react";
@@ -37,6 +38,8 @@ import type { Scenario } from "@/lib/scenarios";
 import { sampleGroups } from "@/lib/scenarios";
 import type { ConfigStatus } from "@/lib/types";
 import { QuestionEditor } from "./question-editor";
+
+export type EvaluateAction = "jev" | "llm" | "both";
 
 /** One half of a two-way switch: yellow when chosen. */
 const segmentClass = (active: boolean) =>
@@ -63,9 +66,12 @@ export function RequestEditor({
   onLoadSample,
   onReset,
   configStatus,
+  llmConfigured,
   onRecheckConfig,
-  isPending,
-  canSubmit,
+  pendingAction,
+  canSubmitJev,
+  canSubmitLlm,
+  canSubmitBoth,
   onSubmit,
   passwordOpen,
   passwordError,
@@ -94,14 +100,17 @@ export function RequestEditor({
   onRequestJsonChange: (text: string) => void;
   onLoadSample: (sampleId: string) => void;
   onReset: () => void;
-  /** What the server said about its own configuration. Never a key or a fragment. */
+  /** What the server said about its TypeSafe configuration. Never a key or a fragment. */
   configStatus: ConfigStatus;
+  /** Moonshot key presence. Missing or non-boolean config is treated as false by the page. */
+  llmConfigured: boolean;
   onRecheckConfig: () => void;
-  /** A live call for this scenario is in flight. */
-  isPending: boolean;
-  /** Every guard passes. The page computes it once. */
-  canSubmit: boolean;
-  onSubmit: () => void;
+  /** Which button started the in-flight submission, if any. */
+  pendingAction: EvaluateAction | null;
+  canSubmitJev: boolean;
+  canSubmitLlm: boolean;
+  canSubmitBoth: boolean;
+  onSubmit: (action: EvaluateAction) => void;
   passwordOpen: boolean;
   passwordError: string | null;
   passwordUnlocking: boolean;
@@ -123,9 +132,10 @@ export function RequestEditor({
   const textAvailability = stateTextAvailability(draft.state);
   const stateIsString =
     draft.state.mode === "text" && reading.request !== null && typeof reading.request.state === "string";
-  // Shown beside the button only when something blocks it; a configured, valid
-  // request shows the button alone.
+  // TypeSafe config-status is hidden once that check says configured. A missing
+  // Moonshot key is a separate note and does not replace it.
   const blocker = submitBlocker(configStatus, isRequestValid, hasProblems);
+  const showLlmConfigNote = configStatus !== "unknown" && !llmConfigured;
 
   return (
     <section aria-labelledby="request-heading">
@@ -180,24 +190,46 @@ export function RequestEditor({
         </div>
       </details>
 
-      {/* The one action ------------------------------------------------- */}
+      {/* The three actions ------------------------------------------------- */}
       <div data-testid="submit-area" className="hard-card mt-4 p-4">
-        <button
-          type="button"
-          data-testid="evaluate-live"
-          disabled={!canSubmit}
-          aria-busy={isPending}
-          aria-keyshortcuts="Meta+Enter Control+Enter"
-          aria-describedby={
-            [blocker ? submitStatusId : null, hasProblems ? problemsId : null]
-              .filter(Boolean)
-              .join(" ") || undefined
-          }
-          onClick={onSubmit}
-          className="btn-primary"
-        >
-          {isPending ? "Evaluating with Jev…" : "Evaluate with Jev"}
-        </button>
+        <div className="submit-actions">
+          <button
+            type="button"
+            data-testid="evaluate-live"
+            disabled={!canSubmitJev}
+            aria-busy={pendingAction === "jev"}
+            aria-keyshortcuts="Meta+Enter Control+Enter"
+            aria-describedby={
+              [blocker ? submitStatusId : null, hasProblems ? problemsId : null]
+                .filter(Boolean)
+                .join(" ") || undefined
+            }
+            onClick={() => onSubmit("jev")}
+            className="btn-primary"
+          >
+            {pendingAction === "jev" ? "Evaluating with Jev…" : "Evaluate with Jev"}
+          </button>
+          <button
+            type="button"
+            data-testid="evaluate-llm"
+            disabled={!canSubmitLlm}
+            aria-busy={pendingAction === "llm"}
+            onClick={() => onSubmit("llm")}
+            className="btn"
+          >
+            {pendingAction === "llm" ? "Evaluating with LLM…" : "Evaluate with LLM"}
+          </button>
+          <button
+            type="button"
+            data-testid="evaluate-both"
+            disabled={!canSubmitBoth}
+            aria-busy={pendingAction === "both"}
+            onClick={() => onSubmit("both")}
+            className="btn"
+          >
+            {pendingAction === "both" ? "Evaluating with both…" : "Evaluate with both"}
+          </button>
+        </div>
         {passwordOpen ? (
           <PasswordPrompt
             error={passwordError}
@@ -231,6 +263,15 @@ export function RequestEditor({
               </button>
             ) : null}
           </div>
+        ) : null}
+        {showLlmConfigNote ? (
+          <p
+            data-testid="llm-config-status"
+            role="status"
+            className="mt-3 border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-2.5 text-xs"
+          >
+            The language-model button needs a Moonshot key on the server.
+          </p>
         ) : null}
       </div>
 

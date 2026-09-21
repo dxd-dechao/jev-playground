@@ -4,9 +4,10 @@
  * Panel 3 of 3: the response.
  *
  * Invariants this panel is responsible for:
- *  - Every result is a live Jev response and says so: the live badge appears in
- *    Cards *and* JSON, with the model and measurements it reported. Nothing
- *    hand-written is ever shown in its place, including after a failure.
+ *  - Every result is a live engine response and says so: the Jev or LLM badge
+ *    appears in Cards *and* JSON, with the model and measurements it reported.
+ *    Nothing hand-written is ever shown in its place, including after a failure.
+ *    Measurement stays under that engine's answers.
  *  - Raw answers are shown separately from the composed application outcome,
  *    which is explicitly tagged as code, not a model judgment.
  *  - Measurement fields show only what was really measured or returned; cost
@@ -100,6 +101,9 @@ function resultResponse(result: PlaygroundResult): EvaluationResponse {
 }
 
 export const LIVE_BADGE_TEXT = "Live Jev response — real model call";
+export const LLM_BADGE_TEXT = "Live LLM response — real model call";
+
+export type EngineId = "jev" | "llm";
 
 function LiveBadge() {
   return (
@@ -109,6 +113,18 @@ function LiveBadge() {
     >
       <span aria-hidden="true">●</span>
       {LIVE_BADGE_TEXT}
+    </span>
+  );
+}
+
+function LlmBadge() {
+  return (
+    <span
+      data-testid="llm-badge"
+      className="inline-flex items-center gap-1.5 border-2 border-[var(--color-line)] bg-[var(--color-highlight)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-ink)]"
+    >
+      <span aria-hidden="true">●</span>
+      {LLM_BADGE_TEXT}
     </span>
   );
 }
@@ -315,36 +331,273 @@ function MunicipalComposition({ result }: { result: PlaygroundResult }) {
   );
 }
 
-export function ResponsePanel({
+function EngineResultBody({
+  engine,
+  scenario,
+  result,
+  isStale,
+  view,
+}: {
+  engine: EngineId;
+  scenario: Scenario;
+  result: PlaygroundResult;
+  isStale: boolean;
+  view: ResponseView;
+}) {
+  const presetQuestions = questionsMatchPreset(
+    result.scenarioId,
+    result.requestSnapshot.questions,
+  );
+  const repeatHint =
+    engine === "jev" ? "Press Evaluate with Jev again" : "Press Evaluate with LLM again";
+
+  return (
+    <>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {engine === "jev" ? <LiveBadge /> : <LlmBadge />}
+        <span
+          data-testid={engine === "jev" ? "result-model" : "llm-result-model"}
+          className="text-[11px] font-medium text-[var(--color-ink-soft)]"
+        >
+          {`Model: ${result.live.response.model}`}
+        </span>
+      </div>
+
+      <p
+        data-testid={engine === "jev" ? "result-intro" : "llm-result-intro"}
+        className="mt-2 text-xs text-[var(--color-ink-soft)]"
+      >
+        {engine === "jev"
+          ? "These answers came from a real TypeSafe call made when you pressed Evaluate with Jev. They are this model\u2019s judgment of the State you submitted."
+          : "These answers came from the language-model call when you pressed Evaluate with LLM. They are this model\u2019s judgment of the State you submitted."}
+      </p>
+
+      {isStale ? (
+        <p
+          data-testid={engine === "jev" ? "stale-warning" : "llm-stale-warning"}
+          role="status"
+          className="mt-3 border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-xs font-medium"
+        >
+          The request (State or questions) has been edited since this result was
+          produced. What you see below belongs to the earlier request snapshot,
+          not to the request in the editor. {repeatHint} to spend another call
+          on the new request.
+        </p>
+      ) : null}
+
+      {view === "cards" ? (
+        <div className="mt-4 space-y-4">
+          {!presetQuestions ? (
+            <p
+              data-testid="custom-composition-note"
+              className="border-2 border-dashed border-[var(--color-line-soft)] p-3 text-xs text-[var(--color-ink-soft)]"
+            >
+              <span className="font-semibold text-[var(--color-ink)]">
+                Custom questions — preset composition not applied.
+              </span>{" "}
+              This request did not ask exactly the preset&rsquo;s default
+              questions, so the preset&rsquo;s application rules would be reading
+              answers to questions they were not written for. The raw answers are
+              shown as returned, with no composed outcome.
+            </p>
+          ) : scenario.id === "safety" ? (
+            <SafetyComposition result={result} />
+          ) : (
+            <MunicipalComposition result={result} />
+          )}
+
+          <div>
+            <h3 className="text-sm font-semibold">Raw answers, one per question</h3>
+            <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+              Every answer is preserved with its full distribution, exactly as
+              returned
+              {presetQuestions
+                ? ", kept separate from the composed outcome above."
+                : ", in the order the questions were submitted."}
+            </p>
+            <ul role="list" className="mt-2 space-y-3">
+              {answerOrder(result).map((id) => {
+                const answer = resultAnswers(result)[id];
+                if (!answer) return null;
+                return (
+                  <AnswerCard
+                    key={id}
+                    id={id}
+                    answer={answer}
+                    question={result.requestSnapshot.questions[id]}
+                    scenarioId={scenario.id}
+                    presetMeanings={presetQuestions}
+                  />
+                );
+              })}
+            </ul>
+          </div>
+
+          <Measurement result={result} />
+        </div>
+      ) : (
+        <div className="mt-4">
+          <h3 className="text-sm font-semibold">Live response JSON</h3>
+          <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+            The response as it was received, after being checked against the
+            questions that were submitted. <code>usage</code> and each token count
+            inside it appear only if the service returned them, so an absent
+            count is missing here rather than zero. The cards above render
+            exactly these values.
+          </p>
+          <pre
+            data-testid={engine === "jev" ? "response-json" : "llm-response-json"}
+            className="json-block mt-2 max-h-[28rem] overflow-auto border-2 border-[var(--color-line-soft)] bg-[var(--color-canvas)] p-3 font-mono text-[11px] leading-relaxed"
+          >
+            {JSON.stringify(resultResponse(result), null, 2)}
+          </pre>
+
+          <dl
+            data-testid={engine === "jev" ? "json-measurement" : "llm-json-measurement"}
+            className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs"
+          >
+            <MeasurementRow field="Requested model" value={result.live.requestedModel} />
+            <MeasurementRow
+              field="Evaluation call duration"
+              value={`${result.live.durationMs} ms`}
+            />
+            <MeasurementRow field="Cost" value="Unavailable" />
+          </dl>
+
+          <h3 className="mt-4 text-sm font-semibold">Request snapshot that was sent</h3>
+          <pre
+            data-testid={engine === "jev" ? "snapshot-json" : "llm-snapshot-json"}
+            className="json-block mt-2 max-h-72 overflow-auto border-2 border-[var(--color-line-soft)] bg-[var(--color-canvas)] p-3 font-mono text-[11px] leading-relaxed"
+          >
+            {JSON.stringify(result.requestSnapshot, null, 2)}
+          </pre>
+        </div>
+      )}
+    </>
+  );
+}
+
+function EngineSection({
+  engine,
   scenario,
   result,
   error,
   isStale,
   isErrorStale,
-  isPending,
+  isWaiting,
+  view,
+  wrap,
+}: {
+  engine: EngineId;
+  scenario: Scenario;
+  result: PlaygroundResult | null;
+  error: PlaygroundError | null;
+  isStale: boolean;
+  isErrorStale: boolean;
+  isWaiting: boolean;
+  view: ResponseView;
+  wrap: boolean;
+}) {
+  const loadingTestId = engine === "jev" ? "response-loading" : "response-loading-llm";
+  const loadingLabel =
+    engine === "jev"
+      ? "Evaluating with Jev… one request is in flight. It will be cancelled after 30 seconds and will not be retried automatically."
+      : "Evaluating with LLM… one request is in flight. It will be cancelled after 30 seconds and will not be retried automatically.";
+
+  const body = (
+    <>
+      {isWaiting ? (
+        <p
+          data-testid={loadingTestId}
+          role="status"
+          aria-live="polite"
+          className="mt-3 border-2 border-[var(--color-line)] bg-[var(--color-highlight)] p-3 text-sm font-medium"
+        >
+          {loadingLabel}
+        </p>
+      ) : null}
+
+      {error !== null ? (
+        <div
+          data-testid="live-error"
+          role="alert"
+          className="mt-3 border-2 border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3"
+        >
+          <p className="text-sm font-semibold text-[var(--color-danger)]">
+            The live evaluation failed
+          </p>
+          <p className="mt-1 text-xs text-[var(--color-ink)]">{error.message}</p>
+          <p
+            data-testid="live-error-code"
+            className="mt-1 font-mono text-[11px] text-[var(--color-ink-soft)]"
+          >
+            {error.code}
+          </p>
+          {isErrorStale ? (
+            <p className="mt-1.5 text-xs text-[var(--color-ink-soft)]">
+              The request has since been edited, so this failure belongs to the
+              earlier request.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {result !== null ? (
+        <EngineResultBody
+          engine={engine}
+          scenario={scenario}
+          result={result}
+          isStale={isStale}
+          view={view}
+        />
+      ) : null}
+    </>
+  );
+
+  if (!wrap) return body;
+  return (
+    <div
+      data-testid={engine === "jev" ? "response-engine-jev" : "response-engine-llm"}
+      className="mt-4 border-t-2 border-[var(--color-line-soft)] pt-4 first:mt-0 first:border-t-0 first:pt-0"
+    >
+      {body}
+    </div>
+  );
+}
+
+export function ResponsePanel({
+  scenario,
+  jevResult,
+  llmResult,
+  jevError,
+  llmError,
+  jevStale,
+  llmStale,
+  jevErrorStale,
+  llmErrorStale,
+  waitingEngines,
   view,
   onViewChange,
 }: {
   scenario: Scenario;
-  /**
-   * Always the result for this exact `scenario`, or null. The parent keys
-   * results by scenario, so no switch can show another scenario's answers.
-   */
-  result: PlaygroundResult | null;
-  /** A live failure for this scenario. Kept visible; nothing is substituted for it. */
-  error: PlaygroundError | null;
-  isStale: boolean;
-  isErrorStale: boolean;
-  isPending: boolean;
+  jevResult: PlaygroundResult | null;
+  llmResult: PlaygroundResult | null;
+  jevError: PlaygroundError | null;
+  llmError: PlaygroundError | null;
+  jevStale: boolean;
+  llmStale: boolean;
+  jevErrorStale: boolean;
+  llmErrorStale: boolean;
+  waitingEngines: EngineId[];
   view: ResponseView;
   onViewChange: (view: ResponseView) => void;
 }) {
-  // Decided from the snapshot the result answers, never from the editor: an
-  // answer to edited questions is not reinterpreted through the preset's rules
-  // even if its ids happen to match the preset's.
-  const presetQuestions =
-    result !== null &&
-    questionsMatchPreset(result.scenarioId, result.requestSnapshot.questions);
+  const jevWaiting = waitingEngines.includes("jev");
+  const llmWaiting = waitingEngines.includes("llm");
+  const showJev = jevResult !== null || jevError !== null || jevWaiting;
+  const showLlm = llmResult !== null || llmError !== null || llmWaiting;
+  const wrap = showJev && showLlm;
+  const neitherResult = jevResult === null && llmResult === null;
 
   return (
     <section aria-labelledby="response-heading">
@@ -379,180 +632,43 @@ export function ResponsePanel({
       </div>
 
       <div className="hard-card mt-5 p-4">
-        {isPending ? (
-          <p
-            data-testid="response-loading"
-            role="status"
-            aria-live="polite"
-            className="mt-3 border-2 border-[var(--color-line)] bg-[var(--color-highlight)] p-3 text-sm font-medium"
-          >
-            Evaluating with Jev… one request is in flight. It will be cancelled
-            after 30 seconds and will not be retried automatically.
-          </p>
+        {showJev ? (
+          <EngineSection
+            engine="jev"
+            scenario={scenario}
+            result={jevResult}
+            error={jevError}
+            isStale={jevStale}
+            isErrorStale={jevErrorStale}
+            isWaiting={jevWaiting}
+            view={view}
+            wrap={wrap}
+          />
         ) : null}
 
-        {error !== null ? (
-          <div
-            data-testid="live-error"
-            role="alert"
-            className="mt-3 border-2 border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3"
-          >
-            <p className="text-sm font-semibold text-[var(--color-danger)]">
-              The live evaluation failed
-            </p>
-            <p className="mt-1 text-xs text-[var(--color-ink)]">{error.message}</p>
-            <p
-              data-testid="live-error-code"
-              className="mt-1 font-mono text-[11px] text-[var(--color-ink-soft)]"
-            >
-              {error.code}
-            </p>
-            {isErrorStale ? (
-              <p className="mt-1.5 text-xs text-[var(--color-ink-soft)]">
-                The request has since been edited, so this failure belongs to the
-                earlier request.
-              </p>
-            ) : null}
-          </div>
+        {showLlm ? (
+          <EngineSection
+            engine="llm"
+            scenario={scenario}
+            result={llmResult}
+            error={llmError}
+            isStale={llmStale}
+            isErrorStale={llmErrorStale}
+            isWaiting={llmWaiting}
+            view={view}
+            wrap={wrap}
+          />
         ) : null}
 
-        {result === null ? (
+        {neitherResult ? (
           <p
             data-testid="response-empty"
             className="mt-4 border-2 border-dashed border-[var(--color-line-soft)] p-4 text-sm text-[var(--color-ink-soft)]"
           >
-            No result yet. Press Evaluate with Jev to evaluate this request.
+            No result yet. Press Evaluate with Jev, Evaluate with LLM, or
+            Evaluate with both.
           </p>
-        ) : (
-          <>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <LiveBadge />
-              <span
-                data-testid="result-model"
-                className="text-[11px] font-medium text-[var(--color-ink-soft)]"
-              >
-                {`Model: ${result.live.response.model}`}
-              </span>
-            </div>
-
-            <p data-testid="result-intro" className="mt-2 text-xs text-[var(--color-ink-soft)]">
-              These answers came from a real TypeSafe call made when you pressed
-              Evaluate with Jev. They are this model&rsquo;s judgment of the
-              State you submitted.
-            </p>
-
-            {isStale ? (
-              <p
-                data-testid="stale-warning"
-                role="status"
-                className="mt-3 border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-xs font-medium"
-              >
-                The request (State or questions) has been edited since this
-                result was produced. What you see below belongs to the earlier
-                request snapshot, not to the request in the editor.{" "}
-                Press Evaluate with Jev again to spend another call on the new request.
-              </p>
-            ) : null}
-
-            {view === "cards" ? (
-              <div className="mt-4 space-y-4">
-                {!presetQuestions ? (
-                  <p
-                    data-testid="custom-composition-note"
-                    className="border-2 border-dashed border-[var(--color-line-soft)] p-3 text-xs text-[var(--color-ink-soft)]"
-                  >
-                    <span className="font-semibold text-[var(--color-ink)]">
-                      Custom questions — preset composition not applied.
-                    </span>{" "}
-                    This request did not ask exactly the preset&rsquo;s default
-                    questions, so the preset&rsquo;s application rules would be
-                    reading answers to questions they were not written for. The
-                    raw answers are shown as returned, with no composed outcome.
-                  </p>
-                ) : scenario.id === "safety" ? (
-                  <SafetyComposition result={result} />
-                ) : (
-                  <MunicipalComposition result={result} />
-                )}
-
-                <div>
-                  <h3 className="text-sm font-semibold">
-                    Raw answers, one per question
-                  </h3>
-                  <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-                    Every answer is preserved with its full distribution, exactly
-                    as returned
-                    {presetQuestions
-                      ? ", kept separate from the composed outcome above."
-                      : ", in the order the questions were submitted."}
-                  </p>
-                  <ul role="list" className="mt-2 space-y-3">
-                    {answerOrder(result).map((id) => {
-                      const answer = resultAnswers(result)[id];
-                      if (!answer) return null;
-                      return (
-                        <AnswerCard
-                          key={id}
-                          id={id}
-                          answer={answer}
-                          question={result.requestSnapshot.questions[id]}
-                          scenarioId={scenario.id}
-                          presetMeanings={presetQuestions}
-                        />
-                      );
-                    })}
-                  </ul>
-                </div>
-
-                <Measurement result={result} />
-              </div>
-            ) : (
-              <div className="mt-4">
-                <h3 className="text-sm font-semibold">
-                  Live response JSON
-                </h3>
-                <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-                  The response as it was received, after being checked against
-                  the questions that were submitted. <code>usage</code> and each
-                  token count inside it appear only if TypeSafe returned them, so
-                  an absent count is missing here rather than zero. The cards
-                  above render exactly these values.
-                </p>
-                <pre
-                  data-testid="response-json"
-                  className="json-block mt-2 max-h-[28rem] overflow-auto border-2 border-[var(--color-line-soft)] bg-[var(--color-canvas)] p-3 font-mono text-[11px] leading-relaxed"
-                >
-                  {JSON.stringify(resultResponse(result), null, 2)}
-                </pre>
-
-                <dl
-                  data-testid="json-measurement"
-                  className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs"
-                >
-                  <MeasurementRow
-                    field="Requested model"
-                    value={result.live.requestedModel}
-                  />
-                  <MeasurementRow
-                    field="Evaluation call duration"
-                    value={`${result.live.durationMs} ms`}
-                  />
-                  <MeasurementRow field="Cost" value="Unavailable" />
-                </dl>
-
-                <h3 className="mt-4 text-sm font-semibold">
-                  Request snapshot that was sent
-                </h3>
-                <pre
-                  data-testid="snapshot-json"
-                  className="json-block mt-2 max-h-72 overflow-auto border-2 border-[var(--color-line-soft)] bg-[var(--color-canvas)] p-3 font-mono text-[11px] leading-relaxed"
-                >
-                  {JSON.stringify(result.requestSnapshot, null, 2)}
-                </pre>
-              </div>
-            )}
-          </>
-        )}
+        ) : null}
       </div>
     </section>
   );

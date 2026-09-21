@@ -3,19 +3,21 @@
 A local playground for exploring **TypeSafe Jev typed questions** against two scenarios:
 **Student safety guardrails** and **Municipal ticket triage**.
 
-There is **one action**, **Evaluate with Jev**: one real, billed TypeSafe call per press,
-made from the server. You get the actual typed answers, the measured call duration, the
-token counts the response carried, and the model TypeSafe resolved. Nothing else on the page
-calls the model.
+There are **three actions**. **Evaluate with Jev** posts once to `POST /api/evaluate` (one
+TypeSafe call). **Evaluate with LLM** posts once to `POST /api/evaluate-llm` (one Moonshot
+call). **Evaluate with both** posts once to each route. Each engine's result shows that
+engine's typed answers, the measured call duration, the token counts the response carried,
+and the model the server resolved, with **Measurement** under those answers. A missing
+Moonshot key disables LLM and Both; it does not disable Jev.
 
-Evaluate needs a key on the server; see
-[The API key](#the-api-key). Without one the page still loads, and every editing feature
-works, but Evaluate is disabled with a short explanation and a **Re-check configuration**
-button. (Before JEV-08 there was also an offline Fixture mode; it has been removed from the
-page. The hand-written fixtures remain in `lib/fixtures.ts` as offline test infrastructure.)
+Evaluate with Jev needs a TypeSafe key on the server; Evaluate with LLM needs a Moonshot
+key. See [The API key](#the-api-key). Without the matching key the page still loads, and
+every editing feature works, but that button is disabled with a short explanation. (Before
+JEV-08 there was also an offline Fixture mode; it has been removed from the page. The
+hand-written fixtures remain in `lib/fixtures.ts` as offline test infrastructure.)
 
 A hosted server can also set a shared playground password so Evaluate is not an open
-spend of TypeSafe credits. See [Deploying to Railway](#deploying-to-railway). Browsing,
+spend of provider credits. See [Deploying to Railway](#deploying-to-railway). Browsing,
 editing State and questions, and loading samples stay public.
 
 ## What this is not
@@ -54,7 +56,8 @@ npm run dev     # http://localhost:3000
 `package-lock.json` is committed; use `npm ci` for a reproducible install.
 
 **No key is needed to install, develop, build, or run any check.** Without one the app
-starts normally and every editor works; only Evaluate is disabled, with an explanation.
+starts normally and every editor works; the matching Evaluate buttons are disabled, with
+an explanation.
 
 ## The API key
 
@@ -92,12 +95,14 @@ model name. Mocked tests that omit `access` are treated as `open`.
 
 So a configured server can still fail on the first evaluation with an authentication
 or rate-limit error; that is expected, not a bug. A hosted server with
-`PLAYGROUND_PASSWORD` set still lets anyone browse and edit; only Evaluate asks
+`PLAYGROUND_PASSWORD` set still lets anyone browse and edit; only an Evaluate action asks
 for the shared password, and only the first time in that browser.
 
-While the check is running, or if it fails, Evaluate is disabled. A short status line
-beside the button says why, with a **Re-check configuration** button when there is no key
-or the check failed. A configured server shows the button alone.
+While the TypeSafe check is running, or if it fails, Evaluate with Jev is disabled. A short
+status line beside the buttons says why, with a **Re-check configuration** button when there
+is no TypeSafe key or the check failed. When TypeSafe is configured and Moonshot is not, Jev
+stays enabled and a separate note says the language-model button needs a Moonshot key on the
+server. When both keys are present, neither note is shown.
 
 ### What Evaluate sends, and what it does not
 
@@ -112,13 +117,15 @@ invalid request, and none of them calls the provider. The model, the provider UR
 key stay server decisions: a page **cannot** supply them, and the route rejects any body
 carrying them. The body cap stays at 128 KiB.
 
-One submission — a press of **Evaluate with Jev** or **⌘/Ctrl+Enter** — is **one** upstream
-request. Retries are switched off, including the SDK's own defaults, so a failure is
-reported rather than silently re-billed. The call is aborted after 30 seconds. The shortcut
-has the same guards as the button: it does nothing while the request is invalid, the
-server is unconfigured, or a call is already in flight. Nothing else in the UI causes
-inference: typing, loading a sample, resetting, switching scenario, State format, or view,
-and re-checking configuration never call the model.
+One press of **Evaluate with Jev** or **⌘/Ctrl+Enter** is **one** TypeSafe request. One press
+of **Evaluate with LLM** is **one** Moonshot request. **Evaluate with both** is those two
+calls started together, not one after the other. Retries are switched off, including the
+SDK's own defaults, so a failure is reported rather than silently re-billed. Each call is
+aborted after 30 seconds. The shortcut has the same guards as Evaluate with Jev: it does
+nothing while the request is invalid, TypeSafe is unconfigured, or a call is already in
+flight, and it never starts an LLM or both call. Nothing else in the UI causes inference:
+typing, loading a sample, resetting, switching scenario, State format, or view, and
+re-checking configuration never call a model.
 
 Before a live response is rendered it is checked against the questions that were submitted —
 answer ids and types must match, a Choice option must be one of that question's criteria,
@@ -149,19 +156,19 @@ own request snapshot, labelled stale if the State or questions have since change
 Error messages and server logs carry the code and guidance only — never the key, never the
 raw upstream error, never the submitted student message.
 
-## Language-model evaluation (not on the page)
+## Language-model evaluation
 
-The page still has one action, **Evaluate with Jev**. `POST /api/evaluate-llm` exists
-on the server and is **not** called by the page. It accepts the same body as
-`POST /api/evaluate` — `{ scenarioId, state, questions }` — and the same
-`jev_access` cookie when the playground password is set. One request spends one
-Moonshot chat-completions call (default model `kimi-k2.6` with thinking disabled)
-and returns the same typed answers envelope plus the measured call duration and
-the token counts the response actually carried. **Cost** stays unavailable: Moonshot
-does not report a cost field here, and nothing is estimated.
+**Evaluate with LLM** calls `POST /api/evaluate-llm`. **Evaluate with both** calls that
+route once and `POST /api/evaluate` once. Both routes accept the same body —
+`{ scenarioId, state, questions }` — and the same `jev_access` cookie when the playground
+password is set. One LLM request spends one Moonshot chat-completions call (default model
+`kimi-k2.6` with thinking disabled) and returns the same typed answers envelope plus the
+measured call duration and the token counts the response actually carried. **Cost** stays
+unavailable: Moonshot does not report a cost field here, and nothing is estimated.
+Measurement stays under each engine's answers; there is no comparison block above them.
 
-Unset `MOONSHOT_API_KEY` is valid. That route then returns 503 `not_configured`,
-and Evaluate with Jev is unaffected.
+Unset `MOONSHOT_API_KEY` is valid. That route then returns 503 `not_configured`. Evaluate
+with LLM and Evaluate with both are disabled; Evaluate with Jev is unaffected.
 
 ## Checks
 
@@ -247,7 +254,7 @@ Set these variables on the service. Mark secrets as sensitive:
 | Variable | Required | Role |
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | To Evaluate with Jev | TypeSafe key. Visitors never type this. |
-| `MOONSHOT_API_KEY` | Optional | Moonshot key for `POST /api/evaluate-llm` only. Unset is valid; that route then returns 503. The page does not call it. |
+| `MOONSHOT_API_KEY` | Optional | Moonshot key for Evaluate with LLM / both (`POST /api/evaluate-llm`). Unset is valid; that route then returns 503, and Jev stays available. |
 | `PLAYGROUND_PASSWORD` | To gate Evaluate | Shared password people type. Blank/unset = gate off. Both sides are trimmed once. |
 | `PLAYGROUND_SESSION_SECRET` | When the password is set | Long random HMAC key for the `jev_access` cookie. Do not derive it from the password. |
 
@@ -255,7 +262,7 @@ Browsing, editing State/questions, loading samples, Reset, and the configuration
 re-check stay public. Evaluate is gated when `PLAYGROUND_PASSWORD` is set: the first
 press in a browser asks for the password; later presses use an HttpOnly cookie for
 seven days. This is a shared-secret speed bump, **not** user accounts. Anyone who
-knows the password can spend TypeSafe credits.
+knows the password can spend TypeSafe and Moonshot credits.
 
 Unlock failures are rate-limited in memory (five per client IP per 15 minutes, using
 the first `x-forwarded-for` hop on Railway). That budget is per replica and is not a
@@ -276,18 +283,24 @@ Three panels, left to right (stacked on narrow viewports):
    is yellow. Safety is the default. The full purpose and the scenario's caveat are in the
    **About this scenario** disclosure under the Request heading.
 2. **Request** — a **Form** / **Whole-request JSON** switch sits beside the heading (see
-   [Editing the request](#editing-the-request)). Below it is the one action, **Evaluate
-   with Jev** (**⌘/Ctrl+Enter** does the same). When the request is valid and the server has
-   a key, the button stands alone; otherwise one short line beside it says what blocks it.
-   State and every question are always submitted together as **one** request. Then the
-   **State** section: grouped sample buttons replace the State **only** and keep your
-   questions; **Reset to preset** (in red) restores the scenario's default State *and*
-   questions and discards any invalid draft. Samples and Reset work in either view.
-3. **Response** — answers as cards or as raw JSON, always under the **Live Jev response —
-   real model call** badge and the model that answered.
+   [Editing the request](#editing-the-request)). Below it are three actions: **Evaluate
+   with Jev** (`POST /api/evaluate`; **⌘/Ctrl+Enter** does the same), **Evaluate with LLM**
+   (`POST /api/evaluate-llm`), and **Evaluate with both** (one call to each). When the
+   request is valid and the matching key is present, that button is enabled; otherwise a
+   short line beside the buttons says what blocks it. A missing Moonshot key disables LLM
+   and Both without disabling Jev. State and every question are always submitted together
+   as **one** request. Then the **State** section: grouped sample buttons replace the State
+   **only** and keep your questions; **Reset to preset** (in red) restores the scenario's
+   default State *and* questions and discards any invalid draft. Samples and Reset work in
+   either view.
+3. **Response** — answers as cards or as raw JSON, under that engine's live badge and the
+   model that answered. A Jev result uses **Live Jev response — real model call**; an LLM
+   result uses **Live LLM response — real model call**. Evaluate with both stacks Jev then
+   LLM, each with its own answers and Measurement underneath. There is no comparison
+   Measurement above the answers.
 
-Each scenario keeps its **own** draft and its **own** result. Switching scenarios never
-shows one scenario's result beside another's request.
+Each scenario keeps its **own** draft and its **own** Jev and LLM result slots. Switching
+scenarios never shows one scenario's result beside another's request.
 
 ### A result belongs to one request
 
@@ -478,7 +491,7 @@ app/                    App Router shell, global tokens, client page holding all
 app/api/config/         GET { configured, llmConfigured, access } — key presence + password-gate state
 app/api/unlock/         POST { password } — HttpOnly session cookie; never calls a provider
 app/api/evaluate/       POST { scenarioId, state, questions } — the only TypeSafe call
-app/api/evaluate-llm/   POST { scenarioId, state, questions } — one Moonshot call; not used by the page
+app/api/evaluate-llm/   POST { scenarioId, state, questions } — one Moonshot call; Evaluate with LLM / both
 components/             scenario-picker, request-editor, question-editor, response-panel,
                         probability-bars
 lib/evaluation.ts       server-only SDK adapter: lazy client, no retries, 30 s abort

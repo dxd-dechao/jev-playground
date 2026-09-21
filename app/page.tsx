@@ -8,9 +8,11 @@
  *
  *  - One request draft *per scenario* — State, questions, the chosen view, and
  *    any pending raw JSON — preserved across switches (`lib/request-draft.ts`).
- *  - One live result per scenario, so switching scenario and back never shows
- *    one scenario's answers beside another's request. Every result is a live
- *    Jev response; the playground has no fixture mode.
+ *  - Two live result slots per scenario (Jev and LLM), so switching scenario
+ *    and back never shows one scenario's answers beside another's request.
+ *    A Jev press replaces only the Jev slot; an LLM press replaces only the
+ *    LLM slot; Evaluate with both replaces both for the snapshot captured
+ *    at press time.
  *  - A result carries the exact request (State *and* questions) it was produced
  *    from, and the question order it was displayed in. Staleness is derived by
  *    comparing that snapshot's values against the current draft, so editing
@@ -26,13 +28,17 @@
  *    sample, resetting, switching scenario, State format, or view, and checking
  *    configuration never call the model.
  *  - A live failure stays a failure. Nothing is substituted for it.
- *  - A locked server asks for the playground password on the first Evaluate
- *    press. A 401 from evaluate re-prompts; it is not shown as a Jev error.
+ *  - A locked server asks for the playground password on the first press of
+ *    any of the three actions. A 401 from either evaluate route re-prompts;
+ *    it is not shown as a model error. If Evaluate with both already kept a
+ *    success from one engine, only the 401 engine is retried after unlock.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RequestEditor } from "@/components/request-editor";
+import type { EvaluateAction } from "@/components/request-editor";
 import type {
+  EngineId,
   PlaygroundError,
   PlaygroundResult,
   ResponseView,
@@ -64,10 +70,26 @@ import type {
   LiveEvaluationPayload,
   PlaygroundAccess,
 } from "@/lib/types";
-import { playgroundAccessFromConfig } from "@/lib/types";
+import { playgroundAccessFromConfig, llmConfiguredFromConfig } from "@/lib/types";
 
-/** One live result slot per scenario. */
-type ResultSlots = Record<ScenarioId, PlaygroundResult | null>;
+/** One Jev slot and one LLM slot per scenario. */
+type EnginePair<T> = { jev: T; llm: T };
+type ResultSlots = Record<ScenarioId, EnginePair<PlaygroundResult | null>>;
+type ErrorSlots = Record<ScenarioId, EnginePair<PlaygroundError | null>>;
+
+function emptyPair<T>(value: T): EnginePair<T> {
+  return { jev: value, llm: value };
+}
+
+const ENGINE_ROUTE: Record<EngineId, "/api/evaluate" | "/api/evaluate-llm"> = {
+  jev: "/api/evaluate",
+  llm: "/api/evaluate-llm",
+};
+
+function enginesFor(action: EvaluateAction, only?: EngineId[]): EngineId[] {
+  if (only !== undefined && only.length > 0) return only;
+  return action === "both" ? ["jev", "llm"] : [action];
+}
 
 function perScenario<T>(make: (scenarioId: ScenarioId) => T): Record<ScenarioId, T> {
   const record = {} as Record<ScenarioId, T>;
@@ -117,14 +139,16 @@ export default function PlaygroundPage() {
   const [activeScenarioId, setActiveScenarioId] =
     useState<ScenarioId>(DEFAULT_SCENARIO_ID);
   const [drafts, setDrafts] = useState<Record<ScenarioId, RequestDraft>>(initialDrafts);
-  const [results, setResults] = useState<ResultSlots>(() => perScenario(() => null));
-  const [errors, setErrors] = useState<Record<ScenarioId, PlaygroundError | null>>(() =>
-    perScenario(() => null),
+  const [results, setResults] = useState<ResultSlots>(() => perScenario(() => emptyPair(null)));
+  const [errors, setErrors] = useState<ErrorSlots>(() => perScenario(() => emptyPair(null)));
+  const [pendingAction, setPendingAction] = useState<Record<ScenarioId, EvaluateAction | null>>(
+    () => perScenario(() => null),
   );
-  const [pending, setPending] = useState<Record<ScenarioId, boolean>>(() =>
-    perScenario(() => false),
+  const [waitingEngines, setWaitingEngines] = useState<Record<ScenarioId, EngineId[]>>(() =>
+    perScenario(() => []),
   );
   const [configStatus, setConfigStatus] = useState<ConfigStatus>("unknown");
+  const [llmConfigured, setLlmConfigured] = useState(false);
   const [access, setAccess] = useState<PlaygroundAccess>("open");
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -143,6 +167,7 @@ export default function PlaygroundPage() {
    */
   const inFlight = useRef<Record<ScenarioId, boolean>>(perScenario(() => false));
   const unlockingRef = useRef(false);
+  const resumeRef = useRef<{ action: EvaluateAction; engines: EngineId[] } | null>(null);
 
   const scenario = getScenario(activeScenarioId);
   const draft = drafts[activeScenarioId];
@@ -198,14 +223,30 @@ export default function PlaygroundPage() {
     return notes;
   }, [questionsAreDefault, reading, scenario]);
 
-  const result = results[activeScenarioId];
-  const isStale = result !== null && isOutdated(result.requestSnapshot, reading.request);
+  const jevResult = results[activeScenarioId].jev;
+  const llmResult = results[activeScenarioId].llm;
+  const jevStale = jevResult !== null && isOutdated(jevResult.requestSnapshot, reading.request);
+  const llmStale = llmResult !== null && isOutdated(llmResult.requestSnapshot, reading.request);
 
-  const error = errors[activeScenarioId];
-  const isErrorStale = error !== null && isOutdated(error.requestSnapshot, reading.request);
-  const isPending = pending[activeScenarioId];
+  const jevError = errors[activeScenarioId].jev;
+  const llmError = errors[activeScenarioId].llm;
+  const jevErrorStale =
+    jevError !== null && isOutdated(jevError.requestSnapshot, reading.request);
+  const llmErrorStale =
+    llmError !== null && isOutdated(llmError.requestSnapshot, reading.request);
+  const currentPendingAction = pendingAction[activeScenarioId];
+  const isPending = currentPendingAction !== null;
+  const currentWaiting = waitingEngines[activeScenarioId];
 
-  const canSubmit = isRequestValid && configStatus === "configured" && !isPending && !unlocking;
+  const canSubmitJev =
+    isRequestValid && configStatus === "configured" && !isPending && !unlocking;
+  const canSubmitLlm =
+    isRequestValid &&
+    llmConfigured &&
+    configStatus !== "unknown" &&
+    !isPending &&
+    !unlocking;
+  const canSubmitBoth = canSubmitJev && canSubmitLlm;
 
   /**
    * Ask the server whether evaluation is possible at all. This is a plain GET
@@ -227,6 +268,7 @@ export default function PlaygroundPage() {
         payload !== null &&
         (payload as { configured?: unknown }).configured === true;
       setAccess(playgroundAccessFromConfig(payload));
+      setLlmConfigured(llmConfiguredFromConfig(payload));
       setConfigStatus(configured ? "configured" : "missing");
     } catch {
       // The failure is recorded and shown beside the disabled button; nothing
@@ -299,119 +341,144 @@ export default function PlaygroundPage() {
     updateDraft(() => initialDraft(scenario));
   }, [scenario, updateDraft]);
 
-  const evaluateLive = useCallback(async () => {
-    const request = reading.request;
-    if (!isRequestValid || request === null) return;
-    if (configStatus !== "configured") return;
-    // The disabled button is the visible guard; this is the real one. A second
-    // press, a repeated shortcut, or a replayed event cannot start a second
-    // paid call while one is in flight.
-    if (inFlight.current[scenario.id] || pending[scenario.id]) return;
+  const evaluate = useCallback(
+    async (action: EvaluateAction, onlyEngines?: EngineId[]) => {
+      const request = reading.request;
+      if (!isRequestValid || request === null) return;
+      const engines = enginesFor(action, onlyEngines);
+      if (engines.includes("jev") && configStatus !== "configured") return;
+      if (engines.includes("llm") && !llmConfigured) return;
+      // The disabled buttons are the visible guard; this is the real one. A
+      // second press, a repeated shortcut, or the other buttons cannot start
+      // another paid call while one is in flight.
+      if (inFlight.current[scenario.id] || pendingAction[scenario.id] !== null) return;
 
-    // Everything the response will be filed under is captured *now*, before the
-    // await, so a later switch or edit cannot change where it lands.
-    const scenarioId = scenario.id;
-    const requestSnapshot = request;
-    const questionOrder = reading.order;
-    const token = tokens.current[scenarioId] + 1;
-    tokens.current[scenarioId] = token;
-    inFlight.current[scenarioId] = true;
+      const scenarioId = scenario.id;
+      const requestSnapshot = request;
+      const questionOrder = reading.order;
+      const token = tokens.current[scenarioId] + 1;
+      tokens.current[scenarioId] = token;
+      inFlight.current[scenarioId] = true;
+      const unauthorized: EngineId[] = [];
 
-    setPending((previous) => ({ ...previous, [scenarioId]: true }));
+      setPendingAction((previous) => ({ ...previous, [scenarioId]: action }));
+      setWaitingEngines((previous) => ({ ...previous, [scenarioId]: [...engines] }));
 
-    try {
-      const response = await fetch("/api/evaluate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        cache: "no-store",
-        // Exactly the request on screen. The model and the key are the server's.
-        body: JSON.stringify({
-          scenarioId,
-          state: requestSnapshot.state,
-          questions: requestSnapshot.questions,
-        }),
-      });
+      const runEngine = async (engine: EngineId) => {
+        try {
+          const response = await fetch(ENGINE_ROUTE[engine], {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({
+              scenarioId,
+              state: requestSnapshot.state,
+              questions: requestSnapshot.questions,
+            }),
+          });
 
-      let payload: unknown = null;
-      try {
-        payload = (await response.json()) as unknown;
-      } catch {
-        payload = null;
-      }
+          let payload: unknown = null;
+          try {
+            payload = (await response.json()) as unknown;
+          } catch {
+            payload = null;
+          }
 
-      // A newer request for this slot has started; this answer is no longer the
-      // one being waited for, and showing it would misrepresent which request
-      // it answers.
+          if (tokens.current[scenarioId] !== token) return;
+
+          if (response.status === 401) {
+            unauthorized.push(engine);
+            return;
+          }
+
+          if (response.ok && isLivePayload(payload)) {
+            const live: PlaygroundResult = {
+              source: "live",
+              scenarioId,
+              live: payload,
+              requestSnapshot,
+              questionOrder,
+            };
+            setResults((previous) => ({
+              ...previous,
+              [scenarioId]: { ...previous[scenarioId], [engine]: live },
+            }));
+            setErrors((previous) => ({
+              ...previous,
+              [scenarioId]: { ...previous[scenarioId], [engine]: null },
+            }));
+            return;
+          }
+
+          const failure =
+            typeof payload === "object" &&
+            payload !== null &&
+            typeof (payload as { error?: { code?: unknown; message?: unknown } }).error ===
+              "object" &&
+            (payload as { error: { code?: unknown; message?: unknown } }).error !== null &&
+            typeof (payload as { error: { code?: unknown } }).error.code === "string" &&
+            typeof (payload as { error: { message?: unknown } }).error.message === "string"
+              ? (payload as { error: { code: string; message: string } }).error
+              : UNREADABLE_ERROR;
+
+          setErrors((previous) => ({
+            ...previous,
+            [scenarioId]: {
+              ...previous[scenarioId],
+              [engine]: {
+                source: "live",
+                scenarioId,
+                requestSnapshot,
+                questionOrder,
+                code: failure.code,
+                message: failure.message,
+              },
+            },
+          }));
+        } catch {
+          if (tokens.current[scenarioId] !== token) return;
+          setErrors((previous) => ({
+            ...previous,
+            [scenarioId]: {
+              ...previous[scenarioId],
+              [engine]: {
+                source: "live",
+                scenarioId,
+                requestSnapshot,
+                questionOrder,
+                code: "client_network_error",
+                message:
+                  "The browser could not reach the evaluation endpoint, so there is no " +
+                  "answer to show. Nothing was substituted for it.",
+              },
+            },
+          }));
+        } finally {
+          if (tokens.current[scenarioId] === token) {
+            setWaitingEngines((previous) => ({
+              ...previous,
+              [scenarioId]: previous[scenarioId].filter((id) => id !== engine),
+            }));
+          }
+        }
+      };
+
+      await Promise.all(engines.map((engine) => runEngine(engine)));
+
       if (tokens.current[scenarioId] !== token) return;
+      inFlight.current[scenarioId] = false;
+      setPendingAction((previous) => ({ ...previous, [scenarioId]: null }));
+      setWaitingEngines((previous) => ({ ...previous, [scenarioId]: [] }));
 
-      if (response.status === 401) {
-        // Expired or missing cookie: re-prompt. This is not a Jev/model failure.
+      if (unauthorized.length > 0) {
         setAccess("required");
+        resumeRef.current = { action, engines: unauthorized };
         setPasswordError(null);
         setPasswordOpen(true);
-        return;
       }
-
-      if (response.ok && isLivePayload(payload)) {
-        const live: PlaygroundResult = {
-          source: "live",
-          scenarioId,
-          live: payload,
-          requestSnapshot,
-          questionOrder,
-        };
-        setResults((previous) => ({ ...previous, [scenarioId]: live }));
-        setErrors((previous) => ({ ...previous, [scenarioId]: null }));
-        return;
-      }
-
-      const failure =
-        typeof payload === "object" &&
-        payload !== null &&
-        typeof (payload as { error?: { code?: unknown; message?: unknown } }).error ===
-          "object" &&
-        (payload as { error: { code?: unknown; message?: unknown } }).error !== null &&
-        typeof (payload as { error: { code?: unknown } }).error.code === "string" &&
-        typeof (payload as { error: { message?: unknown } }).error.message === "string"
-          ? (payload as { error: { code: string; message: string } }).error
-          : UNREADABLE_ERROR;
-
-      // The previous successful live result, if any, stays exactly as it was —
-      // with its own snapshot — and this failure stays visible above it.
-      setErrors((previous) => ({
-        ...previous,
-        [scenarioId]: {
-          source: "live",
-          scenarioId,
-          requestSnapshot,
-          questionOrder,
-          code: failure.code,
-          message: failure.message,
-        },
-      }));
-    } catch {
-      if (tokens.current[scenarioId] !== token) return;
-      setErrors((previous) => ({
-        ...previous,
-        [scenarioId]: {
-          source: "live",
-          scenarioId,
-          requestSnapshot,
-          questionOrder,
-          code: "client_network_error",
-          message:
-            "The browser could not reach the evaluation endpoint, so there is no " +
-            "answer to show. Nothing was substituted for it.",
-        },
-      }));
-    } finally {
-      // Only the request that still owns this slot may release it.
-      if (tokens.current[scenarioId] === token) {
-        inFlight.current[scenarioId] = false;
-        setPending((previous) => ({ ...previous, [scenarioId]: false }));
-      }
-    }
-  }, [configStatus, isRequestValid, pending, reading, scenario.id]);
+    },
+    [configStatus, isRequestValid, llmConfigured, pendingAction, reading, scenario.id],
+  );
 
   const submitPassword = useCallback(
     async (password: string) => {
@@ -451,7 +518,9 @@ export default function PlaygroundPage() {
         setAccess("granted");
         setPasswordOpen(false);
         setPasswordError(null);
-        void evaluateLive();
+        const resume = resumeRef.current;
+        resumeRef.current = null;
+        if (resume) void evaluate(resume.action, resume.engines);
       } catch {
         setPasswordError(WRONG_PASSWORD_MESSAGE);
       } finally {
@@ -459,24 +528,31 @@ export default function PlaygroundPage() {
         setUnlocking(false);
       }
     },
-    [evaluateLive, isPending],
+    [evaluate, isPending],
   );
 
   const cancelPassword = useCallback(() => {
     if (unlockingRef.current) return;
+    resumeRef.current = null;
     setPasswordOpen(false);
     setPasswordError(null);
   }, []);
 
-  const submit = useCallback(() => {
-    if (!canSubmit) return;
-    if (access === "required") {
-      setPasswordError(null);
-      setPasswordOpen(true);
-      return;
-    }
-    void evaluateLive();
-  }, [access, canSubmit, evaluateLive]);
+  const submit = useCallback(
+    (action: EvaluateAction) => {
+      const allowed =
+        action === "jev" ? canSubmitJev : action === "llm" ? canSubmitLlm : canSubmitBoth;
+      if (!allowed) return;
+      if (access === "required") {
+        resumeRef.current = { action, engines: enginesFor(action) };
+        setPasswordError(null);
+        setPasswordOpen(true);
+        return;
+      }
+      void evaluate(action);
+    },
+    [access, canSubmitBoth, canSubmitJev, canSubmitLlm, evaluate],
+  );
 
   /**
    * Cmd/Ctrl+Enter submits, with every guard the button
@@ -500,7 +576,7 @@ export default function PlaygroundPage() {
       event.preventDefault();
       if (event.repeat) return;
       if (passwordOpenRef.current) return;
-      submitRef.current();
+      submitRef.current("jev");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -512,13 +588,14 @@ export default function PlaygroundPage() {
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
           <h1 className="text-3xl font-extrabold tracking-tight">Jev playground</h1>
           <p className="border-2 border-[var(--color-line)] bg-[var(--color-panel)] px-2 py-1 text-xs font-semibold">
-            Each Evaluate calls TypeSafe Jev once, from the server.
+            Jev calls TypeSafe, LLM calls the language model, and Both calls each once.
           </p>
         </div>
         <p className="mt-3 max-w-4xl text-sm text-[var(--color-ink-soft)]">
           Pick a scenario, edit its State and questions, then evaluate the
-          request with Jev. Answers are one model&rsquo;s judgment of one
-          request: they show what the API returns, not how well it performs.
+          request with Jev, the language model, or both. Answers are one
+          model&rsquo;s judgment of one request: they show what the API returns,
+          not how well it performs.
         </p>
       </header>
 
@@ -549,9 +626,12 @@ export default function PlaygroundPage() {
             onLoadSample={loadSample}
             onReset={resetPreset}
             configStatus={configStatus}
+            llmConfigured={llmConfigured}
             onRecheckConfig={() => void checkConfig()}
-            isPending={isPending}
-            canSubmit={canSubmit}
+            pendingAction={currentPendingAction}
+            canSubmitJev={canSubmitJev}
+            canSubmitLlm={canSubmitLlm}
+            canSubmitBoth={canSubmitBoth}
             onSubmit={submit}
             passwordOpen={passwordOpen}
             passwordError={passwordError}
@@ -564,11 +644,15 @@ export default function PlaygroundPage() {
         <div className="min-w-0">
           <ResponsePanel
             scenario={scenario}
-            result={result}
-            error={error}
-            isStale={isStale}
-            isErrorStale={isErrorStale}
-            isPending={isPending}
+            jevResult={jevResult}
+            llmResult={llmResult}
+            jevError={jevError}
+            llmError={llmError}
+            jevStale={jevStale}
+            llmStale={llmStale}
+            jevErrorStale={jevErrorStale}
+            llmErrorStale={llmErrorStale}
+            waitingEngines={currentWaiting}
             view={view}
             onViewChange={setView}
           />
