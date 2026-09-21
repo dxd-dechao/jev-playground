@@ -19,6 +19,22 @@ next-env.d.ts.bak
 /playwright/.cache/
 /screenshots/
 
+# test source and runner config (local-only)
+/tests/
+/playwright.config.ts
+/vitest.config.ts
+
+# offline evaluation CLI, datasets, and scorers (not part of the app)
+/evaluation/
+
+# handoff protocol, agent control files, and local task archives
+HANDOFF.md
+HANDOFF-ARCHIVE.md
+.handoff-logs/
+.handoff-config.json
+.claude/
+/archive/
+
 # local env files — every one of them, including any variant added later. A
 # TypeSafe API key belongs in macOS Keychain; any compatibility env file stays
 # untracked on the machine using it.
