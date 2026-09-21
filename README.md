@@ -22,18 +22,15 @@ editing State and questions, and loading samples stay public.
 
 - **Not** a measurement of Jev quality. A working integration says the API returns typed
   answers in the documented shape. It says nothing about whether those answers are right.
-  Each sample's proposed expected outcome is kept in `lib/scenarios.ts` for the offline
-  evaluation tooling only; it is not shown in the page, never enters State, and has never
-  been scored against a real evaluation.
+  Each sample's proposed expected outcome is kept in `lib/scenarios.ts`. It is not
+  shown in the page and never enters State.
 - **Not** evidence that the safety scenario is safe or that the routing scenario routes
   correctly. One response is one response.
 - **Not** a moderation or escalation system. The safety scenario does not contact anyone,
   log anything, or take action on a student. Nothing is dispatched to any agency.
-- **Not** a benchmark runner in the browser. The playground has no dataset sweep, no accuracy
-  metric, and no run history. A result shows what a single call measured. Offline
-  evaluation tooling lives separately under `evaluation/` (see [Evaluation](#evaluation)); its
-  live commands are explicitly invoked, never part of a check, and never reachable from the
-  browser.
+- **Not** a benchmark runner. The playground has no dataset sweep, no accuracy
+  metric, and no run history. A result shows what a single call measured. This
+  repository does not include an evaluation dataset, scorer, or live runner.
 - **Not** a cost report. The API documents no cost field, so **Cost** always reads
   *Unavailable* rather than an estimate dressed up as a measurement.
 
@@ -41,8 +38,6 @@ editing State and questions, and loading samples stay public.
 
 - Node **>= 20.9.0** and npm **>= 10**. Developed and checked on Node **26.3.1** /
   npm **11.16.0**.
-- A Chromium build for Playwright, only if you want to run the browser tests
-  (see [Browser tests](#browser-tests)).
 
 ## Setup
 
@@ -150,36 +145,16 @@ raw upstream error, never the submitted student message.
 
 ```bash
 npm run typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
-npm run test        # vitest: composition, fixtures, validation, adapter, route
 npm run build       # production build; succeeds with no API key present
-npm run test:e2e    # Playwright, desktop 1440px and mobile 390px
 ```
 
-The offline evaluation commands (`eval:prepare`, `eval:mock-run`, `eval:score`,
-`eval:preflight`) are described in [Evaluation](#evaluation); they need no key either. The two
-live commands (`eval:smoke`, `eval:live`) spend money and are never part of a check.
+Neither command makes a provider call, even on a machine with a key configured.
+`lib/evaluation.ts` is the only module that reads the key or imports the SDK, and
+the only route that can call it is `POST /api/evaluate`.
 
-**No automated check makes a real provider call**, even on a machine with a key configured:
-
-- The adapter tests drive the real SDK over an injected fake `fetch` and a synthetic fake
-  key, so the request is fully assembled but never leaves the process.
-- The route tests mock the adapter and assert it was **not** called on every rejection path.
-- The browser tests fulfil `/api/config` and `/api/evaluate` with `page.route`, and
-  `playwright.config.ts` starts the server under test with the TypeSafe variables blanked, so
-  an unmocked request could only produce a 503.
-- One test greps the emitted client bundle in `.next/static` for the fake key, for
-  `TYPESAFE_API_KEY`, for `api.typesafe.ai`, for the SDK itself, and for
-  `process.env.PLAYGROUND` / playground password values, confirming that key,
-  session secret, and transport stay on the server. Run `npm run build` before
-  `npm run test` for it to execute.
-- The live-path tests drive the same guards with fake evaluators and a fake `fetch`, and assert
-  the network was never touched. One test asserts that `evaluation/live.ts` is the only module
-  under `evaluation/` that imports the SDK or the transport, and that nothing imports it
-  statically, so an offline command cannot load it even by accident.
-
-Mocked live results are annotated as such in the Playwright report. A green
-`live-playground.spec.ts` is evidence that the UI handles live-shaped responses correctly —
-not that the integration has been verified against the real service.
+`package.json` still lists `test`, `test:e2e`, and `eval:*`. The files those
+scripts need — `tests/`, `vitest.config.ts`, `playwright.config.ts`, and
+`evaluation/` — are not in this repository, so a clone cannot run them.
 
 ### Why the build is pinned to webpack
 
@@ -197,20 +172,6 @@ process can bind a port on the same machine, and the Turbopack build succeeds as
 `postcss.config.mjs` is removed. The webpack build succeeds with Tailwind's utilities
 present in the emitted CSS. If Turbopack's PostCSS worker works in your environment, you
 can drop the flag; the application code does not depend on either bundler.
-
-### Browser tests
-
-Playwright needs a matching Chromium. If the suite reports a missing browser:
-
-```bash
-npx playwright install chromium
-```
-
-The suite starts its own production server on `127.0.0.1:3100`, so run `npm run build`
-first. It also writes layout evidence to `screenshots/` (gitignored): full-page
-screenshots per viewport project, including the request editor's Form, invalid-JSON, and
-custom-question views. Playwright starts that server with TypeSafe and playground-password
-variables blanked, so an unmocked Evaluate can only 503.
 
 ## Deploying to Railway
 
@@ -242,11 +203,11 @@ Unlock failures are rate-limited in memory (five per client IP per 15 minutes, u
 the first `x-forwarded-for` hop on Railway). That budget is per replica and is not a
 security boundary.
 
-`railway.toml` in this repo matches the build/start/healthcheck above. It does not
-contain a service token. This task does not create a Railway project or deploy.
+`railway.toml` matches the build, start, and healthcheck above. It does not
+contain a service token.
 
-JEV-06's live evaluation budget is exhausted. Deploying the playground makes no
-provider call by itself; only an explicit Evaluate after unlock does.
+Deploying the playground makes no provider call by itself. Only an explicit
+Evaluate, after the password unlock when the gate is on, does.
 
 ## How it works
 
@@ -396,55 +357,6 @@ thresholded into a boolean and never overrides the Choice answers.
 Raw agency accuracy and the application's decision to defer or suppress are kept distinct,
 so abstention cannot hide an error.
 
-## Evaluation
-
-`evaluation/` holds reproducible tooling for two synthetic suites that reuse the presets'
-questions and composition code unchanged:
-
-- **Municipal** (JEV-04): a byte-for-byte snapshot of the 150-case synthetic interview test
-  set, with its inherited agency labels kept as single-source `inherited_reference` labels
-  and a separate, unreviewed disposition annotation sheet.
-- **Student safety** (JEV-05): newly authored synthetic contrast cases whose labels are all
-  `proposed` until a named human reviewer records a review.
-
-```bash
-npm run eval:prepare  -- --suite municipal --split development --out evaluation-output/m-dev
-npm run eval:mock-run -- --prepared evaluation-output/m-dev --out evaluation-output/m-run
-npm run eval:score    -- --suite municipal --manifest evaluation-output/m-run/run-manifest.json \
-                         --predictions evaluation-output/m-run/predictions.jsonl --out evaluation-output/m-report
-```
-
-`prepare` writes label-free requests; `mock-run` answers them with a deterministic mock;
-`score` validates provenance and writes JSON and Markdown metrics; `preflight` checks all four
-suite/split request sets before anything is spent. **None of these four commands calls a model,
-reads an API key, or uses the network.** Mock reports are stamped **MOCK DATA — NOT MODEL
-PERFORMANCE**. `evaluation-output/` is gitignored.
-
-Two commands do call TypeSafe for real (JEV-06), and only when explicitly invoked:
-
-```bash
-npm run eval:smoke -- --out <dir> --max-calls 12 --confirm-live     # 12 sample calls
-npm run eval:live  -- --prepared <dir> --out <dir> --max-calls <n> --confirm-live
-```
-
-Both require an explicit numeric `--max-calls` **and** a deliberate `--confirm-live`, refuse to
-start when the requests would exceed the cap, and offer `--dry-run` to preview without reading
-the credential. There is no environment switch and no credential-driven fallback: a stored key
-changes nothing until someone types the flags. One case is one attempt — retries stay disabled.
-
-**One authorized live pass has been run:** 214 calls (12 smoke, then 97 + 53 + 44 + 8 across
-the four splits), all succeeded, all resolved to `jev-1.13.0`, 268,931 input and 34,083 output
-tokens. Coverage was 100% on every split. All agreement figures are **diagnostic**, because no
-label has been reviewed by a human. The measurements, the per-split breakdowns, and the
-limitations are in [`evaluation/JEV-06-RESULTS.md`](evaluation/JEV-06-RESULTS.md).
-
-What remains unverified: **any operational agency assignment policy, and school safety
-effectiveness**. Held-out cases are synthetic and are not independent real-world validation.
-Labels are proposed or inherited, never reviewed, so accuracy-style numbers from a live run are
-**diagnostic only** and reviewed-label metrics stay *unavailable* until a named human reviews
-labels. See [`evaluation/README.md`](evaluation/README.md) for the contract, provenance labels,
-annotation procedure, and the files needed to reproduce a run.
-
 ## Agency taxonomy provenance
 
 `lib/agency-definitions.ts` holds a **prototype** Singapore agency taxonomy
@@ -467,13 +379,9 @@ lib/playground-gate.ts  server-only password compare, signed cookie, unlock rate
 lib/request-draft.ts    editable drafts: Form rows, State Text/JSON rule, raw JSON parsing
 lib/                    types, schemas (Zod), scenarios + samples, fixtures,
                         safety-guardrails, municipal-routing, agency-definitions
-evaluation/             evaluation tooling: shared contract, CLI, municipal and safety
-                        suites. Offline by default; live.ts and smoke.ts are the
-                        only paid path and are opt-in (see evaluation/README.md)
-tests/                  decisions, request-validation, request-draft, evaluation,
-                        evaluation-route, playground-gate, evaluation-shared, evaluation-cli,
-                        municipal-evaluation, safety-evaluation (vitest); playground.spec.ts,
-                        live-playground.spec.ts, request-editor.spec.ts (Playwright)
+scripts/                macOS Keychain helpers for the TypeSafe key
+railway.toml            Railpack build, start command, and `/` healthcheck
+.env.example            placeholder variable names only
 ```
 
 `lib/evaluation.ts` is the only module that touches the key or the SDK, and it refuses to
