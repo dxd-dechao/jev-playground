@@ -1,0 +1,865 @@
+{
+  "assignments": [
+    {
+      "caseId": "TC001",
+      "groupId": "g-lift-malfunction-block",
+      "split": "development"
+    },
+    {
+      "caseId": "TC002",
+      "groupId": "g-TC002",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC003",
+      "groupId": "g-wall-crack-contrast",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC004",
+      "groupId": "g-TC004",
+      "split": "development"
+    },
+    {
+      "caseId": "TC005",
+      "groupId": "g-TC005",
+      "split": "development"
+    },
+    {
+      "caseId": "TC006",
+      "groupId": "g-TC006",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC007",
+      "groupId": "g-TC007",
+      "split": "development"
+    },
+    {
+      "caseId": "TC008",
+      "groupId": "g-TC008",
+      "split": "development"
+    },
+    {
+      "caseId": "TC009",
+      "groupId": "g-playground-equipment",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC010",
+      "groupId": "g-TC010",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC011",
+      "groupId": "g-TC011",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC012",
+      "groupId": "g-TC012",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC013",
+      "groupId": "g-TC013",
+      "split": "development"
+    },
+    {
+      "caseId": "TC014",
+      "groupId": "g-TC014",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC015",
+      "groupId": "g-TC015",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC016",
+      "groupId": "g-TC016",
+      "split": "development"
+    },
+    {
+      "caseId": "TC017",
+      "groupId": "g-TC017",
+      "split": "development"
+    },
+    {
+      "caseId": "TC018",
+      "groupId": "g-TC018",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC019",
+      "groupId": "g-TC019",
+      "split": "development"
+    },
+    {
+      "caseId": "TC020",
+      "groupId": "g-fallen-branch-blocking-path",
+      "split": "development"
+    },
+    {
+      "caseId": "TC021",
+      "groupId": "g-TC021",
+      "split": "development"
+    },
+    {
+      "caseId": "TC022",
+      "groupId": "g-TC022",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC023",
+      "groupId": "g-TC023",
+      "split": "development"
+    },
+    {
+      "caseId": "TC024",
+      "groupId": "g-TC024",
+      "split": "development"
+    },
+    {
+      "caseId": "TC025",
+      "groupId": "g-illegal-parking-obstruction",
+      "split": "development"
+    },
+    {
+      "caseId": "TC026",
+      "groupId": "g-TC026",
+      "split": "development"
+    },
+    {
+      "caseId": "TC027",
+      "groupId": "g-TC027",
+      "split": "development"
+    },
+    {
+      "caseId": "TC028",
+      "groupId": "g-TC028",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC029",
+      "groupId": "g-TC029",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC030",
+      "groupId": "g-TC030",
+      "split": "development"
+    },
+    {
+      "caseId": "TC031",
+      "groupId": "g-smoke-vape-into-unit",
+      "split": "development"
+    },
+    {
+      "caseId": "TC032",
+      "groupId": "g-TC032",
+      "split": "development"
+    },
+    {
+      "caseId": "TC033",
+      "groupId": "g-TC033",
+      "split": "development"
+    },
+    {
+      "caseId": "TC034",
+      "groupId": "g-TC034",
+      "split": "development"
+    },
+    {
+      "caseId": "TC035",
+      "groupId": "g-TC035",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC036",
+      "groupId": "g-TC036",
+      "split": "development"
+    },
+    {
+      "caseId": "TC037",
+      "groupId": "g-late-night-music-noise",
+      "split": "development"
+    },
+    {
+      "caseId": "TC038",
+      "groupId": "g-TC038",
+      "split": "development"
+    },
+    {
+      "caseId": "TC039",
+      "groupId": "g-smoke-vape-into-unit",
+      "split": "development"
+    },
+    {
+      "caseId": "TC040",
+      "groupId": "g-TC040",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC041",
+      "groupId": "g-wildlife-raiding-rubbish",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC042",
+      "groupId": "g-TC042",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC043",
+      "groupId": "g-water-supply-loss",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC044",
+      "groupId": "g-TC044",
+      "split": "development"
+    },
+    {
+      "caseId": "TC045",
+      "groupId": "g-TC045",
+      "split": "development"
+    },
+    {
+      "caseId": "TC046",
+      "groupId": "g-TC046",
+      "split": "development"
+    },
+    {
+      "caseId": "TC047",
+      "groupId": "g-TC047",
+      "split": "development"
+    },
+    {
+      "caseId": "TC048",
+      "groupId": "g-smelly-drain-near-block",
+      "split": "development"
+    },
+    {
+      "caseId": "TC049",
+      "groupId": "g-TC049",
+      "split": "development"
+    },
+    {
+      "caseId": "TC050",
+      "groupId": "g-water-supply-loss",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC051",
+      "groupId": "g-TC051",
+      "split": "development"
+    },
+    {
+      "caseId": "TC052",
+      "groupId": "g-TC052",
+      "split": "development"
+    },
+    {
+      "caseId": "TC053",
+      "groupId": "g-TC053",
+      "split": "development"
+    },
+    {
+      "caseId": "TC054",
+      "groupId": "g-TC054",
+      "split": "development"
+    },
+    {
+      "caseId": "TC055",
+      "groupId": "g-TC055",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC056",
+      "groupId": "g-fallen-branch-blocking-path",
+      "split": "development"
+    },
+    {
+      "caseId": "TC057",
+      "groupId": "g-overgrown-grass",
+      "split": "development"
+    },
+    {
+      "caseId": "TC058",
+      "groupId": "g-playground-equipment",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC059",
+      "groupId": "g-TC059",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC060",
+      "groupId": "g-TC060",
+      "split": "development"
+    },
+    {
+      "caseId": "TC061",
+      "groupId": "g-fallen-branch-blocking-path",
+      "split": "development"
+    },
+    {
+      "caseId": "TC062",
+      "groupId": "g-wildlife-raiding-rubbish",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC063",
+      "groupId": "g-TC063",
+      "split": "development"
+    },
+    {
+      "caseId": "TC064",
+      "groupId": "g-TC064",
+      "split": "development"
+    },
+    {
+      "caseId": "TC065",
+      "groupId": "g-TC065",
+      "split": "development"
+    },
+    {
+      "caseId": "TC066",
+      "groupId": "g-TC066",
+      "split": "development"
+    },
+    {
+      "caseId": "TC067",
+      "groupId": "g-TC067",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC068",
+      "groupId": "g-TC068",
+      "split": "development"
+    },
+    {
+      "caseId": "TC069",
+      "groupId": "g-TC069",
+      "split": "development"
+    },
+    {
+      "caseId": "TC070",
+      "groupId": "g-TC070",
+      "split": "development"
+    },
+    {
+      "caseId": "TC071",
+      "groupId": "g-notice-board",
+      "split": "development"
+    },
+    {
+      "caseId": "TC072",
+      "groupId": "g-TC072",
+      "split": "development"
+    },
+    {
+      "caseId": "TC073",
+      "groupId": "g-TC073",
+      "split": "development"
+    },
+    {
+      "caseId": "TC074",
+      "groupId": "g-overgrown-grass",
+      "split": "development"
+    },
+    {
+      "caseId": "TC075",
+      "groupId": "g-TC075",
+      "split": "development"
+    },
+    {
+      "caseId": "TC076",
+      "groupId": "g-residential-renovation-drilling",
+      "split": "development"
+    },
+    {
+      "caseId": "TC077",
+      "groupId": "g-TC077",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC078",
+      "groupId": "g-notice-board",
+      "split": "development"
+    },
+    {
+      "caseId": "TC079",
+      "groupId": "g-TC079",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC080",
+      "groupId": "g-TC080",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC081",
+      "groupId": "g-TC081",
+      "split": "development"
+    },
+    {
+      "caseId": "TC082",
+      "groupId": "g-TC082",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC083",
+      "groupId": "g-TC083",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC084",
+      "groupId": "g-illegal-parking-obstruction",
+      "split": "development"
+    },
+    {
+      "caseId": "TC085",
+      "groupId": "g-TC085",
+      "split": "development"
+    },
+    {
+      "caseId": "TC086",
+      "groupId": "g-TC086",
+      "split": "development"
+    },
+    {
+      "caseId": "TC087",
+      "groupId": "g-TC087",
+      "split": "development"
+    },
+    {
+      "caseId": "TC088",
+      "groupId": "g-TC088",
+      "split": "development"
+    },
+    {
+      "caseId": "TC089",
+      "groupId": "g-TC089",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC090",
+      "groupId": "g-TC090",
+      "split": "development"
+    },
+    {
+      "caseId": "TC091",
+      "groupId": "g-late-night-music-noise",
+      "split": "development"
+    },
+    {
+      "caseId": "TC092",
+      "groupId": "g-TC092",
+      "split": "development"
+    },
+    {
+      "caseId": "TC093",
+      "groupId": "g-TC093",
+      "split": "development"
+    },
+    {
+      "caseId": "TC094",
+      "groupId": "g-TC094",
+      "split": "development"
+    },
+    {
+      "caseId": "TC095",
+      "groupId": "g-construction-early-noise",
+      "split": "development"
+    },
+    {
+      "caseId": "TC096",
+      "groupId": "g-construction-temporary-structures",
+      "split": "development"
+    },
+    {
+      "caseId": "TC097",
+      "groupId": "g-renovation-rules-query",
+      "split": "development"
+    },
+    {
+      "caseId": "TC098",
+      "groupId": "g-wall-crack-contrast",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC099",
+      "groupId": "g-renovation-rules-query",
+      "split": "development"
+    },
+    {
+      "caseId": "TC100",
+      "groupId": "g-TC100",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC101",
+      "groupId": "g-construction-temporary-structures",
+      "split": "development"
+    },
+    {
+      "caseId": "TC102",
+      "groupId": "g-TC102",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC103",
+      "groupId": "g-renovation-rules-query",
+      "split": "development"
+    },
+    {
+      "caseId": "TC104",
+      "groupId": "g-construction-early-noise",
+      "split": "development"
+    },
+    {
+      "caseId": "TC105",
+      "groupId": "g-TC105",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC106",
+      "groupId": "g-change-of-use",
+      "split": "development"
+    },
+    {
+      "caseId": "TC107",
+      "groupId": "g-TC107",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC108",
+      "groupId": "g-zoning-query",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC109",
+      "groupId": "g-TC109",
+      "split": "development"
+    },
+    {
+      "caseId": "TC110",
+      "groupId": "g-TC110",
+      "split": "development"
+    },
+    {
+      "caseId": "TC111",
+      "groupId": "g-TC111",
+      "split": "development"
+    },
+    {
+      "caseId": "TC112",
+      "groupId": "g-TC112",
+      "split": "development"
+    },
+    {
+      "caseId": "TC113",
+      "groupId": "g-TC113",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC114",
+      "groupId": "g-TC114",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC115",
+      "groupId": "g-zoning-query",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC116",
+      "groupId": "g-change-of-use",
+      "split": "development"
+    },
+    {
+      "caseId": "TC117",
+      "groupId": "g-property-boundary-query",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC118",
+      "groupId": "g-state-land-misuse",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC119",
+      "groupId": "g-TC119",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC120",
+      "groupId": "g-TC120",
+      "split": "development"
+    },
+    {
+      "caseId": "TC121",
+      "groupId": "g-land-ownership-query",
+      "split": "development"
+    },
+    {
+      "caseId": "TC122",
+      "groupId": "g-state-land-misuse",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC123",
+      "groupId": "g-TC123",
+      "split": "development"
+    },
+    {
+      "caseId": "TC124",
+      "groupId": "g-state-land-misuse",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC125",
+      "groupId": "g-land-ownership-query",
+      "split": "development"
+    },
+    {
+      "caseId": "TC126",
+      "groupId": "g-property-boundary-query",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC127",
+      "groupId": "g-thin-no-maintenance-complaint",
+      "split": "development"
+    },
+    {
+      "caseId": "TC128",
+      "groupId": "g-instruction-override",
+      "split": "development"
+    },
+    {
+      "caseId": "TC129",
+      "groupId": "g-content-free",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC130",
+      "groupId": "g-content-free",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC131",
+      "groupId": "g-cleaner-compliment",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC132",
+      "groupId": "g-TC132",
+      "split": "development"
+    },
+    {
+      "caseId": "TC133",
+      "groupId": "g-lift-malfunction-block",
+      "split": "development"
+    },
+    {
+      "caseId": "TC134",
+      "groupId": "g-residential-renovation-drilling",
+      "split": "development"
+    },
+    {
+      "caseId": "TC135",
+      "groupId": "g-TC135",
+      "split": "development"
+    },
+    {
+      "caseId": "TC136",
+      "groupId": "g-unanswered-prior-contact",
+      "split": "development"
+    },
+    {
+      "caseId": "TC137",
+      "groupId": "g-TC137",
+      "split": "development"
+    },
+    {
+      "caseId": "TC138",
+      "groupId": "g-TC138",
+      "split": "development"
+    },
+    {
+      "caseId": "TC139",
+      "groupId": "g-TC139",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC140",
+      "groupId": "g-instruction-override",
+      "split": "development"
+    },
+    {
+      "caseId": "TC141",
+      "groupId": "g-content-free",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC142",
+      "groupId": "g-unanswered-prior-contact",
+      "split": "development"
+    },
+    {
+      "caseId": "TC143",
+      "groupId": "g-TC143",
+      "split": "development"
+    },
+    {
+      "caseId": "TC144",
+      "groupId": "g-TC144",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC145",
+      "groupId": "g-TC145",
+      "split": "development"
+    },
+    {
+      "caseId": "TC146",
+      "groupId": "g-smelly-drain-near-block",
+      "split": "development"
+    },
+    {
+      "caseId": "TC147",
+      "groupId": "g-thin-no-maintenance-complaint",
+      "split": "development"
+    },
+    {
+      "caseId": "TC148",
+      "groupId": "g-instruction-override",
+      "split": "development"
+    },
+    {
+      "caseId": "TC149",
+      "groupId": "g-cleaner-compliment",
+      "split": "heldout"
+    },
+    {
+      "caseId": "TC150",
+      "groupId": "g-content-free",
+      "split": "heldout"
+    }
+  ],
+  "counts": {
+    "development": {
+      "cases": 97,
+      "groups": 77
+    },
+    "heldout": {
+      "cases": 53,
+      "groups": 41
+    }
+  },
+  "datasetVersion": "municipal-q3-150-v1",
+  "developmentFraction": 0.6666666666666666,
+  "forcedGroups": [
+    {
+      "groupId": "g-TC024",
+      "reason": "Close variant of the visible playground sample `municipal-traffic-light` (a malfunctioning traffic light at a named junction).",
+      "split": "development"
+    },
+    {
+      "groupId": "g-thin-no-maintenance-complaint",
+      "reason": "Close variant of the visible playground sample `municipal-thin-directional` (\"There is no maintenance here; everything is dirty.\"): TC147 is the same thin, directional no-maintenance complaint.",
+      "split": "development"
+    }
+  ],
+  "membershipHash": "032960112d7db40afb0ac65130e9e567944730265ff7cc99d16a6a35a3aa87c3",
+  "method": "group-level: development iff forced, else sha256(`${seed}:${groupId}`)[0:8]/2^32 < developmentFraction",
+  "schemaVersion": 1,
+  "seed": "jev-04-municipal-split-2026-09-21",
+  "sliceCoverage": {
+    "agency:BCA": {
+      "development": 7,
+      "heldout": 5
+    },
+    "agency:HDB": {
+      "development": 8,
+      "heldout": 8
+    },
+    "agency:LTA": {
+      "development": 10,
+      "heldout": 4
+    },
+    "agency:NEA": {
+      "development": 10,
+      "heldout": 5
+    },
+    "agency:NParks": {
+      "development": 9,
+      "heldout": 4
+    },
+    "agency:PUB": {
+      "development": 12,
+      "heldout": 3
+    },
+    "agency:SLA": {
+      "development": 4,
+      "heldout": 6
+    },
+    "agency:SPF": {
+      "development": 10,
+      "heldout": 2
+    },
+    "agency:Town Council": {
+      "development": 12,
+      "heldout": 4
+    },
+    "agency:URA": {
+      "development": 6,
+      "heldout": 5
+    },
+    "agency:Unclear": {
+      "development": 9,
+      "heldout": 7
+    },
+    "tag:adversarial": {
+      "development": 3,
+      "heldout": 0
+    },
+    "tag:ambiguous": {
+      "development": 26,
+      "heldout": 11
+    },
+    "tag:clear": {
+      "development": 43,
+      "heldout": 22
+    },
+    "tag:compliment": {
+      "development": 2,
+      "heldout": 4
+    },
+    "tag:multi_issue": {
+      "development": 0,
+      "heldout": 1
+    },
+    "tag:multilingual": {
+      "development": 1,
+      "heldout": 0
+    },
+    "tag:non_actionable": {
+      "development": 6,
+      "heldout": 5
+    },
+    "tag:policy_not_defect": {
+      "development": 15,
+      "heldout": 10
+    },
+    "tag:singlish": {
+      "development": 1,
+      "heldout": 0
+    }
+  },
+  "suite": "municipal"
+}

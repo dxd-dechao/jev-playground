@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "snapshotFile": "evaluation/municipal/source/test_cases.json",
+  "sha256": "29b5c51ef2bb8a0e25823f96253f0d3e35e8dede302befa48c30536751d2d43c",
+  "bytes": 59928,
+  "originalPath": "/Users/CHEN_Dechao/Documents/Non-coding/Jev/DS Interview Q3/question-3/evaluation/test_cases.json",
+  "readOn": "2026-09-21",
+  "copiedBy": "JEV-04 municipal worker (AI agent). Byte-for-byte copy; verified with `cmp` against the original and `shasum -a 256`. The original file was not modified.",
+  "caseCount": 150,
+  "dataProvenanceSummary": "Per the source's own meta.data_provenance: hand-authored synthetic feedback text. No real OneService/MSO case data was found publicly; wording is grounded in the 10 MSO partner agencies and in phrasing texture from public Singapore forum threads. Treat as synthetic throughout, not real resident submissions.",
+  "labelStatus": "primary_agency and acceptable_agencies are single-source synthetic references written by the source author (no independent second annotator, per meta.schema_notes). They are carried as `inherited_reference`, not as reviewed operational ground truth.",
+  "fieldsUsed": {
+    "input": ["text (as feedback)"],
+    "labels": ["primary_agency", "acceptable_agencies"],
+    "slices": ["tag", "primary_agency"],
+    "notesOnly": ["note", "expected_behavior"]
+  },
+  "fieldsNotUsed": ["categories", "priority", "expects_followup_question"],
+  "otherSourceFilesConsulted": "score_eval.py was read for prior metric context only; no code was reused."
+}
