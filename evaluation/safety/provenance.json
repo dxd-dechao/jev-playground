@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "datasetVersion": "safety-synthetic-2026-09-21.v1",
+  "origin": "Newly authored synthetic cases for JEV-05 student-safety evaluation. These are not real student records, not derived from school logs, and not independent real-world validation.",
+  "authoredBy": "JEV-05 safety worker (agent-authored proposals)",
+  "authoredOn": "2026-09-21",
+  "reviewStatus": "All labels are provenance proposed. None have been independently reviewed by a named human reviewer. Agents cannot mark their own proposals reviewed.",
+  "casesFile": "cases.json",
+  "casesSha256": "43ea1d3b57db6892b952424cab7557008f145f3141baf08f3123543face3d0c2",
+  "labelsFile": "labels.json",
+  "description": "Fifty-two synthetic student-safety cases in twenty-six contrast groups. Inputs (student_message, conversation_history, learning_context) are stored separately from proposed self_harm_context, handling, and category labels. Visible playground samples and their close variants are tagged visible_example_derived and forced into the development split.",
+  "constraints": [
+    "Non-graphic wording only; no self-harm methods.",
+    "No real identities and no real student data.",
+    "Singlish and local-language examples include documented glosses in case notes.",
+    "All authored labels remain proposed until a named human reviewer records a review in labels.json.",
+    "Cases derived from visible playground samples (groups g01–g08) stay in development.",
+    "targeted_insult is display-only and is never thresholded.",
+    "Synthetic held-out cases are held out from tuning only; they are not independent real-world validation.",
+    "Existing default safety questions and composeSafetyRecommendation are reused unchanged."
+  ]
+}
