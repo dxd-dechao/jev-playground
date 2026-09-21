@@ -19,8 +19,10 @@ were delivered, 214 succeeded, 0 failed, 0 budget remaining.**
 | Model freeze (gate 3) | — | — | **Established** — every call resolved to `jev-1.13.0` |
 | Dataset (gate 4) | ≤202 calls | 202 | **Pass** — 202 ok, 0 error, one k=1 pass over four splits |
 
-Every figure below is one k=1 pass over synthetic cases, measured once. Nothing
-was retried, re-sampled, cherry-picked, or judged by another model.
+Every figure below is one k=1 pass over synthetic cases, measured once. No
+provider-delivered case was retried, re-sampled, cherry-picked, or judged by
+another model. The two earlier local DNS failures are accounted for separately
+below.
 
 **All agreement figures in this document are diagnostic, not accuracy.** Every
 label in both suites is still `proposed` or `inherited_reference`; **reviewed = 0
