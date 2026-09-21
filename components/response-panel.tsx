@@ -7,7 +7,8 @@
  *  - Every result is a live engine response and says so: the Jev or LLM badge
  *    appears in Cards *and* JSON, with the model and measurements it reported.
  *    Nothing hand-written is ever shown in its place, including after a failure.
- *    Measurement stays under that engine's answers.
+ *    A single-engine result keeps Measurement under that engine's answers. A
+ *    Both comparison moves one Measurement block to the top of the card.
  *  - Raw answers are shown separately from the composed application outcome,
  *    which is explicitly tagged as code, not a model judgment.
  *  - Measurement fields show only what was really measured or returned; cost
@@ -138,6 +139,94 @@ function MeasurementRow({ field, value }: { field: string; value: string }) {
   );
 }
 
+type MeasurementFields = {
+  requestedModel: string;
+  resolvedModel: string;
+  inputTokens: string;
+  outputTokens: string;
+  duration: string;
+  cost: string;
+};
+
+function tokenLabel(count: number | undefined): string {
+  return count === undefined ? "Unavailable" : String(count);
+}
+
+function fieldsFromResult(result: PlaygroundResult): MeasurementFields {
+  const live = result.live;
+  const usage = live.response.usage;
+  return {
+    requestedModel: live.requestedModel,
+    resolvedModel: live.response.model,
+    inputTokens: tokenLabel(usage?.input_tokens),
+    outputTokens: tokenLabel(usage?.output_tokens),
+    duration: `${live.durationMs} ms`,
+    cost: "Unavailable",
+  };
+}
+
+const EVALUATING_FIELDS: MeasurementFields = {
+  requestedModel: "Evaluating…",
+  resolvedModel: "Evaluating…",
+  inputTokens: "Evaluating…",
+  outputTokens: "Evaluating…",
+  duration: "Evaluating…",
+  cost: "Evaluating…",
+};
+
+const UNAVAILABLE_FIELDS: MeasurementFields = {
+  requestedModel: "Unavailable",
+  resolvedModel: "Unavailable",
+  inputTokens: "Unavailable",
+  outputTokens: "Unavailable",
+  duration: "Unavailable",
+  cost: "Unavailable",
+};
+
+function comparisonFields(
+  result: PlaygroundResult | null,
+  waiting: boolean,
+): MeasurementFields {
+  if (waiting) return EVALUATING_FIELDS;
+  if (result === null) return UNAVAILABLE_FIELDS;
+  return fieldsFromResult(result);
+}
+
+function MeasurementRows({ fields }: { fields: MeasurementFields }) {
+  return (
+    <>
+      <MeasurementRow field="Requested model" value={fields.requestedModel} />
+      <MeasurementRow field="Resolved model" value={fields.resolvedModel} />
+      <MeasurementRow field="Input tokens" value={fields.inputTokens} />
+      <MeasurementRow field="Output tokens" value={fields.outputTokens} />
+      <MeasurementRow field="Evaluation call duration" value={fields.duration} />
+      <MeasurementRow field="Cost" value={fields.cost} />
+    </>
+  );
+}
+
+function MeasurementHonesty({
+  inputTokens,
+  outputTokens,
+}: {
+  inputTokens?: number;
+  outputTokens?: number;
+}) {
+  return (
+    <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+      Duration is wall time measured around the evaluation call only, so it
+      includes network time and excludes rendering. Cost is unavailable
+      because the API documents no cost field; nothing here is an estimate.
+      {inputTokens === undefined && outputTokens === undefined
+        ? " This response carried no token counts, so none are shown."
+        : inputTokens === undefined || outputTokens === undefined
+          ? " This response reported only one of the two token counts. " +
+            "The other is unavailable, not zero."
+          : null}
+    </p>
+  );
+}
+
 /**
  * Measurements.
  *
@@ -149,11 +238,7 @@ function MeasurementRow({ field, value }: { field: string; value: string }) {
  * estimate here would be a guess wearing a measurement's clothes.
  */
 function Measurement({ result }: { result: PlaygroundResult }) {
-  const live = result.live;
-  const usage = live.response.usage;
-  const inputTokens = usage?.input_tokens;
-  const outputTokens = usage?.output_tokens;
-
+  const usage = result.live.response.usage;
   return (
     <div className="mt-4 border-2 border-[var(--color-line)] bg-[var(--color-panel)] p-3">
       <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
@@ -163,38 +248,54 @@ function Measurement({ result }: { result: PlaygroundResult }) {
         data-testid="measurement-block"
         className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs"
       >
-        <MeasurementRow
-          field="Requested model"
-          value={live.requestedModel}
-        />
-        <MeasurementRow
-          field="Resolved model"
-          value={live.response.model}
-        />
-        <MeasurementRow
-          field="Input tokens"
-          value={inputTokens === undefined ? "Unavailable" : String(inputTokens)}
-        />
-        <MeasurementRow
-          field="Output tokens"
-          value={outputTokens === undefined ? "Unavailable" : String(outputTokens)}
-        />
-        <MeasurementRow
-          field="Evaluation call duration"
-          value={`${live.durationMs} ms`}
-        />
-        <MeasurementRow field="Cost" value="Unavailable" />
+        <MeasurementRows fields={fieldsFromResult(result)} />
       </dl>
+      <MeasurementHonesty
+        inputTokens={usage?.input_tokens}
+        outputTokens={usage?.output_tokens}
+      />
+    </div>
+  );
+}
+
+function ComparisonMeasurement({
+  jevResult,
+  llmResult,
+  jevWaiting,
+  llmWaiting,
+}: {
+  jevResult: PlaygroundResult | null;
+  llmResult: PlaygroundResult | null;
+  jevWaiting: boolean;
+  llmWaiting: boolean;
+}) {
+  return (
+    <div
+      data-testid="comparison-measurement"
+      className="border-2 border-[var(--color-line)] bg-[var(--color-panel)] p-3"
+    >
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
+        Measurement
+      </h4>
+      <div className="comparison-columns mt-2">
+        <div>
+          <h5 className="text-xs font-extrabold">Jev</h5>
+          <dl className="mt-2 grid grid-cols-1 gap-y-1 text-xs">
+            <MeasurementRows fields={comparisonFields(jevResult, jevWaiting)} />
+          </dl>
+        </div>
+        <div>
+          <h5 className="text-xs font-extrabold">LLM</h5>
+          <dl className="mt-2 grid grid-cols-1 gap-y-1 text-xs">
+            <MeasurementRows fields={comparisonFields(llmResult, llmWaiting)} />
+          </dl>
+        </div>
+      </div>
       <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-        Duration is wall time measured around the evaluation call only, so it
+        Duration is wall time measured around each evaluation call only, so it
         includes network time and excludes rendering. Cost is unavailable
-        because the API documents no cost field; nothing here is an estimate.
-        {inputTokens === undefined && outputTokens === undefined
-          ? " This response carried no token counts, so none are shown."
-          : inputTokens === undefined || outputTokens === undefined
-            ? " This response reported only one of the two token counts. " +
-              "The other is unavailable, not zero."
-            : null}
+        because the APIs document no cost field; nothing here is an estimate.
+        A count the response omitted is unavailable, not zero.
       </p>
     </div>
   );
@@ -337,12 +438,14 @@ function EngineResultBody({
   result,
   isStale,
   view,
+  hideMeasurement,
 }: {
   engine: EngineId;
   scenario: Scenario;
   result: PlaygroundResult;
   isStale: boolean;
   view: ResponseView;
+  hideMeasurement: boolean;
 }) {
   const presetQuestions = questionsMatchPreset(
     result.scenarioId,
@@ -433,7 +536,7 @@ function EngineResultBody({
             </ul>
           </div>
 
-          <Measurement result={result} />
+          {hideMeasurement ? null : <Measurement result={result} />}
         </div>
       ) : (
         <div className="mt-4">
@@ -452,17 +555,19 @@ function EngineResultBody({
             {JSON.stringify(resultResponse(result), null, 2)}
           </pre>
 
-          <dl
-            data-testid={engine === "jev" ? "json-measurement" : "llm-json-measurement"}
-            className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs"
-          >
-            <MeasurementRow field="Requested model" value={result.live.requestedModel} />
-            <MeasurementRow
-              field="Evaluation call duration"
-              value={`${result.live.durationMs} ms`}
-            />
-            <MeasurementRow field="Cost" value="Unavailable" />
-          </dl>
+          {hideMeasurement ? null : (
+            <dl
+              data-testid={engine === "jev" ? "json-measurement" : "llm-json-measurement"}
+              className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs"
+            >
+              <MeasurementRow field="Requested model" value={result.live.requestedModel} />
+              <MeasurementRow
+                field="Evaluation call duration"
+                value={`${result.live.durationMs} ms`}
+              />
+              <MeasurementRow field="Cost" value="Unavailable" />
+            </dl>
+          )}
 
           <h3 className="mt-4 text-sm font-semibold">Request snapshot that was sent</h3>
           <pre
@@ -487,6 +592,7 @@ function EngineSection({
   isWaiting,
   view,
   wrap,
+  hideMeasurement,
 }: {
   engine: EngineId;
   scenario: Scenario;
@@ -497,6 +603,7 @@ function EngineSection({
   isWaiting: boolean;
   view: ResponseView;
   wrap: boolean;
+  hideMeasurement: boolean;
 }) {
   const loadingTestId = engine === "jev" ? "response-loading" : "response-loading-llm";
   const loadingLabel =
@@ -549,6 +656,7 @@ function EngineSection({
           result={result}
           isStale={isStale}
           view={view}
+          hideMeasurement={hideMeasurement}
         />
       ) : null}
     </>
@@ -576,6 +684,7 @@ export function ResponsePanel({
   jevErrorStale,
   llmErrorStale,
   waitingEngines,
+  comparison,
   view,
   onViewChange,
 }: {
@@ -589,6 +698,7 @@ export function ResponsePanel({
   jevErrorStale: boolean;
   llmErrorStale: boolean;
   waitingEngines: EngineId[];
+  comparison: boolean;
   view: ResponseView;
   onViewChange: (view: ResponseView) => void;
 }) {
@@ -598,6 +708,7 @@ export function ResponsePanel({
   const showLlm = llmResult !== null || llmError !== null || llmWaiting;
   const wrap = showJev && showLlm;
   const neitherResult = jevResult === null && llmResult === null;
+  const showComparison = comparison && (showJev || showLlm);
 
   return (
     <section aria-labelledby="response-heading">
@@ -632,6 +743,15 @@ export function ResponsePanel({
       </div>
 
       <div className="hard-card mt-5 p-4">
+        {showComparison ? (
+          <ComparisonMeasurement
+            jevResult={jevResult}
+            llmResult={llmResult}
+            jevWaiting={jevWaiting}
+            llmWaiting={llmWaiting}
+          />
+        ) : null}
+
         {showJev ? (
           <EngineSection
             engine="jev"
@@ -643,6 +763,7 @@ export function ResponsePanel({
             isWaiting={jevWaiting}
             view={view}
             wrap={wrap}
+            hideMeasurement={showComparison}
           />
         ) : null}
 
@@ -657,6 +778,7 @@ export function ResponsePanel({
             isWaiting={llmWaiting}
             view={view}
             wrap={wrap}
+            hideMeasurement={showComparison}
           />
         ) : null}
 

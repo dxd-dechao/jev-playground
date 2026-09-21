@@ -12,7 +12,10 @@
  *    and back never shows one scenario's answers beside another's request.
  *    A Jev press replaces only the Jev slot; an LLM press replaces only the
  *    LLM slot; Evaluate with both replaces both for the snapshot captured
- *    at press time.
+ *    at press time. A per-scenario comparison flag is set on a Both press
+ *    and cleared on a single-engine press, so Measurement moves to the top
+ *    only for that pair — not when two separate presses happen to fill both
+ *    slots. A 401 resume of a Both press keeps the flag.
  *  - A result carries the exact request (State *and* questions) it was produced
  *    from, and the question order it was displayed in. Staleness is derived by
  *    comparing that snapshot's values against the current draft, so editing
@@ -147,6 +150,9 @@ export default function PlaygroundPage() {
   const [waitingEngines, setWaitingEngines] = useState<Record<ScenarioId, EngineId[]>>(() =>
     perScenario(() => []),
   );
+  const [comparisonByScenario, setComparisonByScenario] = useState<
+    Record<ScenarioId, boolean>
+  >(() => perScenario(() => false));
   const [configStatus, setConfigStatus] = useState<ConfigStatus>("unknown");
   const [llmConfigured, setLlmConfigured] = useState(false);
   const [access, setAccess] = useState<PlaygroundAccess>("open");
@@ -237,6 +243,7 @@ export default function PlaygroundPage() {
   const currentPendingAction = pendingAction[activeScenarioId];
   const isPending = currentPendingAction !== null;
   const currentWaiting = waitingEngines[activeScenarioId];
+  const comparison = comparisonByScenario[activeScenarioId];
 
   const canSubmitJev =
     isRequestValid && configStatus === "configured" && !isPending && !unlocking;
@@ -363,6 +370,10 @@ export default function PlaygroundPage() {
 
       setPendingAction((previous) => ({ ...previous, [scenarioId]: action }));
       setWaitingEngines((previous) => ({ ...previous, [scenarioId]: [...engines] }));
+      setComparisonByScenario((previous) => ({
+        ...previous,
+        [scenarioId]: action === "both",
+      }));
 
       const runEngine = async (engine: EngineId) => {
         try {
@@ -653,6 +664,7 @@ export default function PlaygroundPage() {
             jevErrorStale={jevErrorStale}
             llmErrorStale={llmErrorStale}
             waitingEngines={currentWaiting}
+            comparison={comparison}
             view={view}
             onViewChange={setView}
           />

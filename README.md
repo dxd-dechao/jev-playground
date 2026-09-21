@@ -7,8 +7,10 @@ There are **three actions**. **Evaluate with Jev** posts once to `POST /api/eval
 TypeSafe call). **Evaluate with LLM** posts once to `POST /api/evaluate-llm` (one Moonshot
 call). **Evaluate with both** posts once to each route. Each engine's result shows that
 engine's typed answers, the measured call duration, the token counts the response carried,
-and the model the server resolved, with **Measurement** under those answers. A missing
-Moonshot key disables LLM and Both; it does not disable Jev.
+and the model the server resolved. A single-engine press keeps **Measurement** under
+those answers. A Both press shows one Measurement comparison first, with both
+durations and token counts, then the answers. A missing Moonshot key disables LLM
+and Both; it does not disable Jev.
 
 Evaluate with Jev needs a TypeSafe key on the server; Evaluate with LLM needs a Moonshot
 key. See [The API key](#the-api-key). Without the matching key the page still loads, and
@@ -165,7 +167,8 @@ password is set. One LLM request spends one Moonshot chat-completions call (defa
 `kimi-k2.6` with thinking disabled) and returns the same typed answers envelope plus the
 measured call duration and the token counts the response actually carried. **Cost** stays
 unavailable: Moonshot does not report a cost field here, and nothing is estimated.
-Measurement stays under each engine's answers; there is no comparison block above them.
+A Both press shows one Measurement comparison first, with both durations and token
+counts. A single-engine press still shows Measurement under that engine's answers.
 
 Unset `MOONSHOT_API_KEY` is valid. That route then returns 503 `not_configured`. Evaluate
 with LLM and Evaluate with both are disabled; Evaluate with Jev is unaffected.
@@ -295,9 +298,10 @@ Three panels, left to right (stacked on narrow viewports):
    either view.
 3. **Response** — answers as cards or as raw JSON, under that engine's live badge and the
    model that answered. A Jev result uses **Live Jev response — real model call**; an LLM
-   result uses **Live LLM response — real model call**. Evaluate with both stacks Jev then
-   LLM, each with its own answers and Measurement underneath. There is no comparison
-   Measurement above the answers.
+   result uses **Live LLM response — real model call**. Evaluate with both puts one
+   Measurement comparison first — Jev and LLM durations and token counts — then stacks
+   Jev then LLM answers. A single-engine press still shows Measurement under that
+   engine's answers.
 
 Each scenario keeps its **own** draft and its **own** Jev and LLM result slots. Switching
 scenarios never shows one scenario's result beside another's request.
