@@ -218,7 +218,7 @@ This is a Next.js app. Create a Railway service from this GitHub repository. Do 
 put real secrets in the repo.
 
 - **Node:** 20 or newer.
-- **Build:** `npm ci && npm run build` (or Nixpacks' default for a Node app).
+- **Build:** Railpack installs dependencies, then runs `npm run build`. Do not put `npm ci` in the Railway build command: Railpack mounts `node_modules/.cache`, and `npm ci` fails trying to remove it.
 - **Start:** `npm run start -- --hostname 0.0.0.0`. Railway provides `PORT`;
   `next start` already honours it. Binding `0.0.0.0` is required so the proxy can reach
   the process.
