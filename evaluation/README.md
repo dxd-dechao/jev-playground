@@ -206,9 +206,67 @@ preparation, scoring, and arithmetic work. They are not model performance.
 Production-like scoring consumes one prediction per case; do not cherry-pick
 repeated attempts or use a judge model.
 
-## JEV-06 (not this task)
+## The live path (JEV-06)
 
-A live evaluator that calls TypeSafe Jev is a separate deliverable with its own
-budget and approval. This tree has no live switch and no credential-driven
-fallback. Real provider performance, operational agency policy, and school
-safety effectiveness remain unverified.
+There is now an evaluator that calls TypeSafe Jev for real. It is explicitly
+invoked and nothing else can reach it.
+
+`evaluation/live.ts` is the only module under `evaluation/` that can spend money.
+It is loaded by dynamic import inside the `smoke` and `live` command handlers
+only, so `prepare`, `mock-run`, `score`, and `preflight` never load it or the
+SDK at all. There is still **no credential-driven fallback and no environment
+switch**: a key in the Keychain changes nothing until someone types the flags.
+
+Every live command requires **both** an explicit numeric `--max-calls` and a
+deliberate `--confirm-live`. A command refuses to start when the requests it
+would send exceed the cap, and `--dry-run` prints the suite, split, call count,
+requested model, and output directory without reading the credential or calling
+anything. `npm test`, `npm run build`, and ordinary CLI use therefore cannot
+spend money by omission.
+
+```bash
+# Zero-call gate. Prepares all four suite/split request sets and checks counts,
+# label isolation, frozen questions, and repeat determinism. Free.
+npm run eval:preflight -- --out evaluation-output/jev-06/preflight
+
+# 12 calls: one per visible playground sample. Stops at the first failure.
+scripts/with-typesafe-key.sh npm run eval:smoke -- \
+  --out evaluation-output/jev-06/smoke --max-calls 12 --confirm-live
+
+# One dataset split, one call per case, no retries.
+scripts/with-typesafe-key.sh npm run eval:live -- \
+  --prepared evaluation-output/jev-06/preflight/municipal-development \
+  --out evaluation-output/jev-06/municipal-development \
+  --max-calls 97 --model <resolved-model-from-smoke> --confirm-live
+```
+
+Guarantees the code enforces, all covered by fake-transport tests in
+`tests/evaluation-live.test.ts`:
+
+- **One case, one attempt.** SDK retries stay disabled; nothing here adds one.
+- **One call at a time.** A concurrent call is refused rather than dispatched.
+- **A hard attempt counter.** Past `--max-calls`, the evaluator throws before
+  sending.
+- **A circuit breaker.** After a fatal condition (bad credentials, denied
+  permission, rate limit), every later case fails locally without a request. The
+  run still records an explicit failure per case, so nothing vanishes from a
+  denominator, but a dead key cannot burn a whole split's budget.
+- **A fresh output directory.** A live run never overwrites one; it is not
+  repeatable for free.
+- **Sanitized failures.** Only a short machine code and a fixed message reach an
+  artifact — never an upstream body, header, or State text.
+
+A live run writes `run-manifest.json`, `predictions.jsonl`, and `live-run.json`
+(attempts, unused budget, halt state, resolved models, counts, latency, token
+totals where the provider reported them). Scoring those saved predictions is
+free and calls nothing.
+
+`--model` pins one exact resolved identifier for a dataset run, which is how a
+run avoids mixing models mid-benchmark. It is only legitimate because the
+TypeSafe model reference states that versioned identifiers are accepted by the
+`model` field; the smoke stage establishes which one to pin.
+
+What remains unverified: labels are still proposed or inherited, never reviewed,
+so every accuracy-style number stays **diagnostic** and reviewed metrics are
+reported as **unavailable**. Operational agency policy and school safety
+effectiveness are untouched by any of this.

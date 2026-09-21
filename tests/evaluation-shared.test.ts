@@ -4,7 +4,7 @@
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { composeSafetyRecommendation } from "../lib/safety-guardrails";
 import { getScenario } from "../lib/scenarios";
@@ -605,15 +605,54 @@ describe("provider isolation", () => {
     });
   }
 
-  it("no evaluation module imports the SDK or the live transport, or reads the environment", () => {
-    const files = tsFiles(join(__dirname, "..", "evaluation"));
+  /**
+   * As of JEV-06 there is exactly one module under `evaluation/` that may reach
+   * the provider: `evaluation/live.ts`. The invariant is therefore narrowed by
+   * one named file rather than dropped — if a second module ever acquires the
+   * transport, this test fails and someone has to say so out loud.
+   */
+  const LIVE_MODULE = "evaluation/live.ts";
+
+  it("no evaluation module except the named live adapter imports the SDK or the transport, or reads the environment", () => {
+    const root = join(__dirname, "..");
+    const files = tsFiles(join(root, "evaluation"));
     expect(files.length).toBeGreaterThan(0);
+    let exceptions = 0;
     for (const file of files) {
+      const rel = relative(root, file);
       const source = readFileSync(file, "utf8");
+      if (rel === LIVE_MODULE) {
+        exceptions += 1;
+        continue;
+      }
       expect(source, file).not.toMatch(/@typesafe-ai\/sdk/);
       expect(source, file).not.toMatch(/lib\/evaluation["']/);
       expect(source, file).not.toMatch(/process\.env/);
       expect(source, file).not.toMatch(/TYPESAFE_/);
     }
+    expect(exceptions, `${LIVE_MODULE} must exist for this exception to mean anything`).toBe(1);
+  });
+
+  /**
+   * The live subtree: modules that are themselves only ever reached by dynamic
+   * import from a live command handler. `smoke.ts` may import `live.ts` as a
+   * value because loading `smoke.ts` already means a live command is running.
+   */
+  const LIVE_SUBTREE = [LIVE_MODULE, "evaluation/smoke.ts"];
+
+  it("the live subtree is reached only by dynamic import, so offline commands never load it", () => {
+    const root = join(__dirname, "..");
+    let checked = 0;
+    for (const file of tsFiles(join(root, "evaluation"))) {
+      if (LIVE_SUBTREE.includes(relative(root, file))) continue;
+      checked += 1;
+      const source = readFileSync(file, "utf8");
+      // `import type` is erased at runtime; a value import would pull the SDK
+      // into `eval:prepare` and `eval:score` as well.
+      for (const match of source.matchAll(/^\s*import\s+(?!type\b)[^\n]*from\s+"\.\/(live|smoke)"/gm)) {
+        expect.fail(`${file} statically imports the live subtree: ${match[0].trim()}`);
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });

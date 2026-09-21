@@ -176,6 +176,11 @@ describe("eval CLI", () => {
     expect(() => parseArgs(["prepare", "--suite"])).toThrow(/Missing value/);
     await expect(runCli(["prepare", "--suite", "bogus", "--split", "development", "--out", dir], deps)).rejects.toThrow(/--suite/);
     await expect(runCli(["prepare", "--suite", "safety", "--split", "test", "--out", dir], deps)).rejects.toThrow(/--split/);
-    await expect(runCli(["live"], deps)).rejects.toThrow(/Unknown command/);
+    await expect(runCli(["evaluate"], deps)).rejects.toThrow(/Unknown command/);
+    // `live` exists as of JEV-06, and its guards are covered in
+    // tests/evaluation-live.test.ts. Here we only check that reaching it from
+    // this offline suite still costs nothing: it refuses on a missing argument
+    // before it looks at a credential or a confirmation.
+    await expect(runCli(["live"], deps)).rejects.toThrow(/--prepared is required/);
   });
 });

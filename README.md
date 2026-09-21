@@ -29,9 +29,9 @@ Fixture mode needs no key and never will. Live mode needs one; see
 - **Not** a benchmark runner in the browser. The playground has no dataset sweep, no accuracy
   metric, and no run history. Live results show what a single call measured; fixture results
   show *Unavailable* for every measurement field, because nothing was measured. Offline
-  evaluation tooling lives separately under `evaluation/` (see
-  [Offline evaluation](#offline-evaluation-jev-0405)) and has so far produced **no real model
-  results**.
+  evaluation tooling lives separately under `evaluation/` (see [Evaluation](#evaluation)); its
+  live commands are explicitly invoked, never part of a check, and never reachable from the
+  browser.
 - **Not** a cost report. The API documents no cost field, so **Cost** always reads
   *Unavailable* rather than an estimate dressed up as a measurement.
 
@@ -141,8 +141,9 @@ npm run build       # production build; succeeds with no API key present
 npm run test:e2e    # Playwright, desktop 1440px and mobile 390px
 ```
 
-The offline evaluation commands (`eval:prepare`, `eval:mock-run`, `eval:score`) are
-described in [Offline evaluation](#offline-evaluation-jev-0405); they need no key either.
+The offline evaluation commands (`eval:prepare`, `eval:mock-run`, `eval:score`,
+`eval:preflight`) are described in [Evaluation](#evaluation); they need no key either. The two
+live commands (`eval:smoke`, `eval:live`) spend money and are never part of a check.
 
 **No automated check makes a real provider call**, even on a machine with a key configured:
 
@@ -155,6 +156,10 @@ described in [Offline evaluation](#offline-evaluation-jev-0405); they need no ke
 - One test greps the emitted client bundle in `.next/static` for the fake key, for
   `TYPESAFE_API_KEY`, for `api.typesafe.ai`, and for the SDK itself, confirming that key and
   transport stay on the server. Run `npm run build` before `npm run test` for it to execute.
+- The live-path tests drive the same guards with fake evaluators and a fake `fetch`, and assert
+  the network was never touched. One test asserts that `evaluation/live.ts` is the only module
+  under `evaluation/` that imports the SDK or the transport, and that nothing imports it
+  statically, so an offline command cannot load it even by accident.
 
 Mocked live results are annotated as such in the Playwright report. A green
 `live-playground.spec.ts` is evidence that the UI handles live-shaped responses correctly —
@@ -343,10 +348,10 @@ thresholded into a boolean and never overrides the Choice answers.
 Raw agency accuracy and the application's decision to defer or suppress are kept distinct,
 so abstention cannot hide an error.
 
-## Offline evaluation (JEV-04/05)
+## Evaluation
 
-`evaluation/` holds offline, reproducible tooling for two synthetic suites that reuse the
-presets' questions and composition code unchanged:
+`evaluation/` holds reproducible tooling for two synthetic suites that reuse the presets'
+questions and composition code unchanged:
 
 - **Municipal** (JEV-04): a byte-for-byte snapshot of the 150-case synthetic interview test
   set, with its inherited agency labels kept as single-source `inherited_reference` labels
@@ -362,17 +367,30 @@ npm run eval:score    -- --suite municipal --manifest evaluation-output/m-run/ru
 ```
 
 `prepare` writes label-free requests; `mock-run` answers them with a deterministic mock;
-`score` validates provenance and writes JSON and Markdown metrics. **None of these commands
-calls a model, reads an API key, or uses the network**, and there is no live switch. Mock
-reports are stamped **MOCK DATA — NOT MODEL PERFORMANCE**. `evaluation-output/` is
-gitignored.
+`score` validates provenance and writes JSON and Markdown metrics; `preflight` checks all four
+suite/split request sets before anything is spent. **None of these four commands calls a model,
+reads an API key, or uses the network.** Mock reports are stamped **MOCK DATA — NOT MODEL
+PERFORMANCE**. `evaluation-output/` is gitignored.
 
-What remains unverified: **real provider performance, any operational agency assignment
-policy, and school safety effectiveness**. Held-out cases are synthetic and are not
-independent real-world validation. Reviewed-label metrics stay *unavailable* until a human
-reviews labels. Running real predictions is a separate task (JEV-06) with its own budget and
-approval. See [`evaluation/README.md`](evaluation/README.md) for the contract, provenance
-labels, annotation procedure, and the files needed to reproduce a run.
+Two commands do call TypeSafe for real (JEV-06), and only when explicitly invoked:
+
+```bash
+npm run eval:smoke -- --out <dir> --max-calls 12 --confirm-live     # 12 sample calls
+npm run eval:live  -- --prepared <dir> --out <dir> --max-calls <n> --confirm-live
+```
+
+Both require an explicit numeric `--max-calls` **and** a deliberate `--confirm-live`, refuse to
+start when the requests would exceed the cap, and offer `--dry-run` to preview without reading
+the credential. There is no environment switch and no credential-driven fallback: a stored key
+changes nothing until someone types the flags. One case is one attempt — retries stay disabled.
+Results of the authorized run are in [`evaluation/JEV-06-RESULTS.md`](evaluation/JEV-06-RESULTS.md).
+
+What remains unverified: **any operational agency assignment policy, and school safety
+effectiveness**. Held-out cases are synthetic and are not independent real-world validation.
+Labels are proposed or inherited, never reviewed, so accuracy-style numbers from a live run are
+**diagnostic only** and reviewed-label metrics stay *unavailable* until a named human reviews
+labels. See [`evaluation/README.md`](evaluation/README.md) for the contract, provenance labels,
+annotation procedure, and the files needed to reproduce a run.
 
 ## Agency taxonomy provenance
 
@@ -394,8 +412,9 @@ lib/evaluation-response.ts  runtime check of a response against the submitted qu
 lib/request-draft.ts    editable drafts: Form rows, State Text/JSON rule, raw JSON parsing
 lib/                    types, schemas (Zod), scenarios + samples, fixtures,
                         safety-guardrails, municipal-routing, agency-definitions
-evaluation/             offline evaluation: shared contract, CLI, municipal and safety
-                        suites (no model calls; see evaluation/README.md)
+evaluation/             evaluation tooling: shared contract, CLI, municipal and safety
+                        suites. Offline by default; live.ts and smoke.ts are the
+                        only paid path and are opt-in (see evaluation/README.md)
 tests/                  decisions, request-validation, request-draft, evaluation,
                         evaluation-route, evaluation-shared, evaluation-cli,
                         municipal-evaluation, safety-evaluation (vitest); playground.spec.ts,
