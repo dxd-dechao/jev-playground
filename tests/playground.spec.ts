@@ -1,5 +1,5 @@
 /**
- * Browser tests for the three-panel shell.
+ * Browser tests for the three-panel shell, in Fixture mode.
  *
  * These check interaction and honesty properties of the UI, not model quality:
  * the default view, scenario switching and reset, per-scenario draft
@@ -7,6 +7,10 @@
  * after an edit, no cross-scenario result leakage, and the fixture badge in
  * both result views. Two viewport projects (1440px and 390px) also assert no
  * horizontal overflow and save screenshots as test evidence.
+ *
+ * Fixture mode is the default, so these are also the regression tests for the
+ * offline path: nothing here may reach `/api/evaluate`. Live behaviour lives in
+ * `live-playground.spec.ts` and is mocked there.
  */
 
 import { expect, test, type Page } from "@playwright/test";
@@ -53,6 +57,23 @@ test("defaults to the safety scenario with its default sample loaded", async ({
 
   // Nothing is shown in the response panel until a preview is requested.
   await expect(page.getByTestId("response-empty")).toBeVisible();
+});
+
+test("defaults to Fixture mode, with Live an explicit choice", async ({ page }) => {
+  await expect(page.getByTestId("mode-fixture")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByTestId("mode-live")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  // The default action cannot spend anything.
+  await expect(page.getByTestId("preview-fixture")).toBeVisible();
+  await expect(page.getByTestId("evaluate-live")).toHaveCount(0);
+  await expect(page.getByTestId("mode-description")).toContainText(
+    "No model is called",
+  );
 });
 
 test("loads every sample in both scenarios: twelve in total", async ({ page }) => {
@@ -175,6 +196,8 @@ test("shows the fixture badge in both Cards and JSON views", async ({ page }) =>
 
   await expect(page.getByTestId("fixture-badge")).toBeVisible();
   await expect(page.getByTestId("fixture-badge")).toContainText("no model call");
+  await expect(page.getByTestId("result-source")).toHaveText("Source: fixture");
+  await expect(page.getByTestId("live-badge")).toHaveCount(0);
   await expect(page.getByTestId("composed-outcome")).toBeVisible();
   await expect(page.getByTestId("answer-self_harm_context")).toBeVisible();
   // Nothing measured may look measured.
@@ -182,10 +205,13 @@ test("shows the fixture badge in both Cards and JSON views", async ({ page }) =>
 
   await page.getByTestId("view-json").click();
   await expect(page.getByTestId("fixture-badge")).toBeVisible();
+  await expect(page.getByTestId("result-source")).toHaveText("Source: fixture");
   await expect(page.getByTestId("response-json")).toBeVisible();
   const json = await page.getByTestId("response-json").innerText();
   expect(json).not.toContain('"model"');
   expect(json).not.toContain('"usage"');
+  // Live-only measurements have no place next to a fixture.
+  await expect(page.getByTestId("json-measurement")).toHaveCount(0);
 
   await page.getByTestId("view-cards").click();
   await expect(page.getByTestId("fixture-badge")).toBeVisible();
@@ -290,15 +316,19 @@ test("suppresses routing for the clearly unrelated municipal sample", async ({
   await expect(page.getByTestId("answer-primary_agency")).toContainText("LTA");
 });
 
-test("makes no external network request while previewing a fixture", async ({
+test("makes no external request and never calls evaluate in Fixture mode", async ({
   page,
 }) => {
   const external: string[] = [];
+  const evaluateCalls: string[] = [];
   await page.route("**/*", async (route) => {
     const url = route.request().url();
     if (!/^https?:\/\/127\.0\.0\.1:3100\//.test(url) && !url.startsWith("data:")) {
       external.push(url);
     }
+    // `/api/config` is expected: it is a same-origin GET returning one boolean
+    // and makes no model call. `/api/evaluate` is the one that costs money.
+    if (url.includes("/api/evaluate")) evaluateCalls.push(url);
     await route.continue();
   });
 
@@ -309,9 +339,20 @@ test("makes no external network request while previewing a fixture", async ({
   await page.getByTestId("view-json").click();
   await expect(page.getByTestId("response-json")).toBeVisible();
 
+  // Switching mode, typing, and resetting must not be enough to start a call.
+  await page.getByTestId("mode-live").click();
+  await page.getByTestId("state-editor").fill('{ "student_message": "typing" }');
+  await page.getByTestId("reset-preset").click();
+  await page.getByTestId("mode-fixture").click();
+  await page.getByTestId("preview-fixture").click();
+
   expect(external, `unexpected external requests: ${external.join(", ")}`).toEqual(
     [],
   );
+  expect(
+    evaluateCalls,
+    `no evaluation may be requested in Fixture mode: ${evaluateCalls.join(", ")}`,
+  ).toEqual([]);
 });
 
 test("labels every control and gives each a visible keyboard focus", async ({

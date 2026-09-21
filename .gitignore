@@ -19,9 +19,13 @@ next-env.d.ts.bak
 /playwright/.cache/
 /screenshots/
 
-# local env files — the playground needs no key in JEV-01, but never commit one
+# local env files — every one of them, including any variant added later. A
+# TypeSafe API key belongs only in an untracked file on the machine using it.
 .env
-.env*.local
+.env.*
+# ...except the checked-in template, which holds variable names and placeholders
+# and never a real value.
+!.env.example
 
 # macOS
 .DS_Store

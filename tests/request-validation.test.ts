@@ -10,6 +10,7 @@ import {
   findExpectedLabelKeys,
   validateQuestion,
   validateQuestions,
+  validateEvaluateBody,
   validateRequest,
   validateState,
 } from "@/lib/schemas";
@@ -264,7 +265,7 @@ describe("whole-request validation", () => {
     ).toBe(true);
   });
 
-  it("builds a request with no model field, since the server owns that later", () => {
+  it("builds a request with no model field, since the server owns the model", () => {
     const scenario = getScenario("municipal");
     const result = validateRequest(
       scenario.stateSchemaId,
@@ -275,5 +276,121 @@ describe("whole-request validation", () => {
       "questions",
       "state",
     ]);
+  });
+});
+
+/**
+ * Validation reads; it does not write.
+ *
+ * Live mode sends the validated State upstream and shows it in the request
+ * snapshot, so a validator that trimmed or normalized strings would quietly
+ * alter a student's message and misreport what was sent. These tests exist to
+ * keep that property from being lost to a convenient `.trim()`.
+ */
+describe("validation never rewrites content", () => {
+  it("returns State strings byte-for-byte, including surrounding whitespace", () => {
+    const message = "  I can't do this any more.\n\n";
+    const state = {
+      student_message: message,
+      conversation_history: [{ role: "student", message: "  spaced  " }],
+      learning_context: " Year 9 English.  ",
+    };
+    const result = validateState("safety", state);
+
+    expect(result.errors).toEqual([]);
+    const value = result.value as typeof state;
+    expect(value.student_message).toBe(message);
+    expect(value.conversation_history[0]!.message).toBe("  spaced  ");
+    expect(value.learning_context).toBe(" Year 9 English.  ");
+  });
+
+  it("returns the very object it was given, not a rebuilt copy", () => {
+    const scenario = getScenario("safety");
+    const state = scenario.samples[0]!.state;
+    const result = validateState("safety", state);
+    // Identity, not just equality: nothing can have been substituted.
+    expect(result.value).toBe(state);
+  });
+
+  it("still rejects a blank string rather than silently trimming it away", () => {
+    const result = validateState("safety", {
+      student_message: "\n\t  ",
+      conversation_history: [],
+      learning_context: "Student learning assistant.",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes whole requests through unchanged", () => {
+    const scenario = getScenario("municipal");
+    const state = scenario.samples[0]!.state;
+    const result = validateRequest(scenario.stateSchemaId, state, scenario.questions);
+    expect(result.value?.state).toBe(state);
+    expect(result.value?.questions).toBe(scenario.questions);
+  });
+});
+
+/**
+ * The evaluate endpoint's body: the narrowest thing that can be sent.
+ *
+ * Anything a client could add here — questions, a model, a provider URL, a key,
+ * an expected label — must be refused, because accepting it would move a
+ * server-owned decision into the browser.
+ */
+describe("evaluate request body", () => {
+  it("accepts exactly a known scenario id and a state", () => {
+    const result = validateEvaluateBody({
+      scenarioId: "safety",
+      state: { anything: true },
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.value).toEqual({ scenarioId: "safety", state: { anything: true } });
+  });
+
+  it("accepts both shipped scenarios and nothing else", () => {
+    for (const scenario of SCENARIOS) {
+      expect(validateEvaluateBody({ scenarioId: scenario.id, state: {} }).ok).toBe(true);
+    }
+    expect(validateEvaluateBody({ scenarioId: "safety ", state: {} }).ok).toBe(false);
+    expect(validateEvaluateBody({ scenarioId: "SAFETY", state: {} }).ok).toBe(false);
+    expect(validateEvaluateBody({ scenarioId: "", state: {} }).ok).toBe(false);
+  });
+
+  it("covers every shipped scenario id, so no scenario is unreachable", () => {
+    // The schema cannot import the scenario list without a cycle, so the two
+    // must be asserted equal here rather than assumed to agree.
+    const accepted = SCENARIOS.filter(
+      (scenario) => validateEvaluateBody({ scenarioId: scenario.id, state: {} }).ok,
+    );
+    expect(accepted.length).toBe(SCENARIOS.length);
+  });
+
+  it("requires state to be present, even as null", () => {
+    expect(validateEvaluateBody({ scenarioId: "safety" }).ok).toBe(false);
+    expect(validateEvaluateBody({ scenarioId: "safety", state: null }).ok).toBe(true);
+  });
+
+  it("rejects every extra field", () => {
+    for (const extra of [
+      { questions: {} },
+      { model: "jev-latest" },
+      { baseURL: "https://attacker.example" },
+      { apiKey: "sk-not-a-real-key" },
+      { expected: "allow" },
+      { retry: 5 },
+    ]) {
+      const result = validateEvaluateBody({
+        scenarioId: "safety",
+        state: {},
+        ...extra,
+      });
+      expect(result.ok, Object.keys(extra)[0]).toBe(false);
+    }
+  });
+
+  it("rejects a body that is not an object", () => {
+    for (const body of [null, "safety", 7, [], undefined]) {
+      expect(validateEvaluateBody(body).ok).toBe(false);
+    }
   });
 });

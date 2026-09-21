@@ -11,14 +11,32 @@
  * A third check has nothing to do with the API: submitted State must not carry
  * the expected label for a sample. Expected outcomes live in sample metadata so
  * they can be compared against an answer, never inside what the model reads.
+ *
+ * NOTHING HERE REWRITES CONTENT. Every string check is a `check`, never a
+ * `.trim()` transform, so a validated State is byte-for-byte what was submitted.
+ * Since JEV-02 sends the validated State upstream, a transform here would
+ * silently alter a student's message and the request snapshot shown beside the
+ * result.
  */
 
 import { z } from "zod";
 import type { Question, Questions, State } from "./types";
 
+/**
+ * A string that is not blank — validated without altering it. `z.string().trim()`
+ * would return a *different* string than the one submitted.
+ */
+function nonBlankString(message: string): z.ZodType<string> {
+  return z.string().check((ctx) => {
+    if (ctx.value.trim().length === 0) {
+      ctx.issues.push({ code: "custom", input: ctx.value, message });
+    }
+  });
+}
+
 /** `instructions` / criteria bodies: a non-empty string, object, or array. */
 const instructionsSchema: z.ZodType<unknown> = z.union([
-  z.string().trim().min(1, "instructions must not be empty"),
+  nonBlankString("instructions must not be empty"),
   z.array(z.unknown()).min(1, "instructions array must not be empty"),
   z
     .record(z.string(), z.unknown())
@@ -120,40 +138,33 @@ export const questionsSchema = z
 
 const conversationTurnSchema = z.strictObject({
   role: z.enum(["student", "assistant"]),
-  message: z.string().trim().min(1, "a conversation turn needs a message"),
+  message: nonBlankString("a conversation turn needs a message"),
 });
 
 export const safetyStateSchema = z.strictObject({
-  student_message: z
-    .string()
-    .trim()
-    .min(1, "student_message must not be empty"),
+  student_message: nonBlankString("student_message must not be empty"),
   conversation_history: z.array(conversationTurnSchema),
-  learning_context: z
-    .string()
-    .trim()
-    .min(1, "learning_context must not be empty"),
+  learning_context: nonBlankString("learning_context must not be empty"),
 });
 
 const clarificationTurnSchema = z.strictObject({
   role: z.enum(["resident", "officer"]),
-  message: z.string().trim().min(1, "a clarification turn needs a message"),
+  message: nonBlankString("a clarification turn needs a message"),
 });
 
 const agencyDefinitionSchema = z.strictObject({
-  agency: z.string().trim().min(1, "an agency needs a name"),
-  responsibilities: z
-    .string()
-    .trim()
-    .min(1, "an agency needs a responsibility definition"),
+  agency: nonBlankString("an agency needs a name"),
+  responsibilities: nonBlankString(
+    "an agency needs a responsibility definition",
+  ),
 });
 
 export const municipalStateSchema = z.strictObject({
-  feedback: z.string().trim().min(1, "feedback must not be empty"),
+  feedback: nonBlankString("feedback must not be empty"),
   clarification_history: z.array(clarificationTurnSchema),
   agency_config: z.strictObject({
-    taxonomy_version: z.string().trim().min(1),
-    taxonomy_status: z.string().trim().min(1),
+    taxonomy_version: nonBlankString("taxonomy_version must not be empty"),
+    taxonomy_status: nonBlankString("taxonomy_status must not be empty"),
     agencies: z
       .array(agencyDefinitionSchema)
       .min(1, "at least one agency definition is required"),
@@ -231,7 +242,10 @@ export function formatIssues(error: z.ZodError): string[] {
 export function validateQuestions(input: unknown): ValidationResult<Questions> {
   const result = questionsSchema.safeParse(input);
   if (!result.success) return { ok: false, errors: formatIssues(result.error) };
-  return { ok: true, errors: [], value: result.data as Questions };
+  // The *input*, for the same reason as `validateState`: the questions that are
+  // displayed and the questions that are sent must be the same object, and
+  // validating them must not be able to edit an instruction.
+  return { ok: true, errors: [], value: input as Questions };
 }
 
 export function validateQuestion(input: unknown): ValidationResult<Question> {
@@ -264,7 +278,37 @@ export function validateState(
   }
 
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, errors: [], value: result.data as State };
+  // The *input*, not `result.data`. Validation must not be able to change what
+  // gets sent upstream or shown in the request snapshot, now or later.
+  return { ok: true, errors: [], value: input as State };
+}
+
+/* ------------------------------------------------ Server request body -- */
+
+/**
+ * The only body `POST /api/evaluate` accepts.
+ *
+ * `strictObject` is the point: an unknown field is an error, not something to
+ * ignore. A client cannot add `model`, `questions`, `baseURL`, or an API key and
+ * have it silently reach the provider. `state` is accepted as unknown here and
+ * validated against the scenario's own State schema afterwards.
+ */
+export const evaluateBodySchema = z.strictObject({
+  scenarioId: z.enum(["safety", "municipal"]),
+  state: z.unknown(),
+});
+
+export type EvaluateBody = z.infer<typeof evaluateBodySchema>;
+
+export function validateEvaluateBody(
+  input: unknown,
+): ValidationResult<EvaluateBody> {
+  const result = evaluateBodySchema.safeParse(input);
+  if (!result.success) return { ok: false, errors: formatIssues(result.error) };
+  if (!("state" in (input as object))) {
+    return { ok: false, errors: ["state: a State is required"] };
+  }
+  return { ok: true, errors: [], value: result.data };
 }
 
 /** Validate a whole `{ state, questions }` pair before enabling a preview. */

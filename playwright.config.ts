@@ -31,5 +31,22 @@ export default defineConfig({
     url: "http://127.0.0.1:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    /**
+     * Provider isolation for browser tests.
+     *
+     * Live behaviour is exercised against mocked `/api/config` and
+     * `/api/evaluate` responses, so the server under test must not be able to
+     * reach TypeSafe at all. Emptying these variables means that even on a
+     * machine with a real key configured, an unmocked request can only produce a
+     * 503 — never a billed call. `reuseExistingServer` is deliberately not
+     * relied on for this: if a server is already running, it was started by this
+     * same command.
+     */
+    env: {
+      TYPESAFE_API_KEY: "",
+      TYPESAFE_BASE_URL: "",
+      TYPESAFE_MODEL: "",
+      TYPESAFE_DEFAULT_MODEL: "",
+    },
   },
 });

@@ -1,10 +1,11 @@
 /**
  * Request and answer types for the TypeSafe `systemone` contract.
  *
- * Source of truth: the locally saved API snapshot at
- * `../references/sources/typesafe-api.md` (read-only reference). Nothing in
- * JEV-01 sends a request; these types exist so the fixture layer and a later
- * live-integration task share one contract.
+ * Source of truth: the installed `@typesafe-ai/sdk` type declarations
+ * (`node_modules/@typesafe-ai/sdk/dist/index.d.mts`), cross-checked against the
+ * saved API snapshot at `../references/sources/typesafe-api.md`. These types are
+ * shared by the fixture layer, the server adapter, and the browser, so they must
+ * not import the SDK: the SDK is server-only.
  *
  * Notes carried over from the snapshot that are easy to get wrong:
  * - A Noul answer is a *probability that the answer is yes* (0..1). It is not
@@ -15,8 +16,13 @@
  * - Question ids are keys you choose. The snapshot is explicit that the key is
  *   not sent to the model and is not used in inference, so every question must
  *   be self-contained in its own `instructions`/`criteria`.
- * - `model` belongs to the request. In this playground the server would own it
- *   in a later task; JEV-01 never builds a live request body.
+ * - A Score answer's `score` is an *expected* value and may land between
+ *   integer levels, so it must never be validated as an integer.
+ * - `confidence` is optional on this side of the boundary. The SDK declares it
+ *   required, but a response that omits it must render rather than crash, and
+ *   we must not invent a number for it.
+ * - `model` belongs on the request, and the server owns it. The browser never
+ *   chooses a model or a provider URL.
  */
 
 /** `instructions` and criteria bodies accept a string or structured data. */
@@ -55,7 +61,9 @@ export type Questions = Record<string, Question>;
 
 /**
  * The `{ state, questions }` pair the playground displays and validates.
- * `model` is deliberately absent: it is the server's in a later task.
+ *
+ * `model` is deliberately absent. The browser never names a model: the server
+ * resolves it from its own environment and adds it to the upstream payload.
  */
 export interface EvaluationRequest {
   state: State;
@@ -70,22 +78,24 @@ export interface NoulAnswer {
 
 export interface ChoiceAnswer {
   type: "choice";
-  /** The highest-probability option. */
+  /** The option the model selected. Not re-derived from `probabilities`. */
   choice: string;
   /** Every option mapped to its probability; floats summing to 1. */
   probabilities: Record<string, number>;
-  confidence: number;
+  /** Absent only if the upstream response omitted it. Never invented. */
+  confidence?: number;
 }
 
 export interface ScoreAnswer {
   type: "score";
   /** Probability-weighted value across levels; can land between levels. */
   score: number;
-  /** Level index (string key) -> its description. */
-  legend: Record<string, string>;
+  /** Level index (string key) -> its description, as the API returned it. */
+  legend: Record<string, Instructions | null>;
   /** Level index (string key) -> its probability. */
   probabilities: Record<string, number>;
-  confidence: number;
+  /** Absent only if the upstream response omitted it. Never invented. */
+  confidence?: number;
 }
 
 export type Answer = NoulAnswer | ChoiceAnswer | ScoreAnswer;
@@ -98,20 +108,90 @@ export interface Usage {
 }
 
 /**
- * A full response envelope. JEV-01 only ever fills this from a hand-written
- * fixture, and deliberately leaves `model` and `usage` undefined so that no
- * fabricated telemetry can be rendered as if it were measured.
+ * A full response envelope.
+ *
+ * A fixture fills only `answers` and deliberately leaves `model` and `usage`
+ * undefined, so no fabricated telemetry can be rendered as if it were measured.
+ * A live response carries the model TypeSafe actually resolved, and `usage` when
+ * the response included it.
  */
 export interface EvaluationResponse {
   answers: Answers;
   /** The model that performed the evaluation. Unavailable in fixture mode. */
   model?: string;
-  /** Token usage. Unavailable in fixture mode. */
+  /** Token usage. Unavailable in fixture mode, and absent if not returned. */
   usage?: Usage;
 }
 
-/** Where a displayed result came from. JEV-01 only produces `fixture`. */
-export type ResultSource = "fixture";
+/** Where a displayed result came from. Never inferred; always carried. */
+export type ResultSource = "fixture" | "live";
+
+/* ------------------------------------------------- Server API boundary -- */
+
+/**
+ * The body the browser may send to `POST /api/evaluate`.
+ *
+ * Only these two fields. The questions are resolved on the server from the
+ * scenario preset, so the browser cannot smuggle its own questions, model,
+ * provider URL, or credentials into an upstream call.
+ */
+export interface EvaluateRequestBody {
+  scenarioId: string;
+  state: unknown;
+}
+
+/** A successful live evaluation, as returned to the browser. */
+export interface LiveEvaluationPayload {
+  source: "live";
+  /** The model the server asked for. May differ from the resolved model. */
+  requestedModel: string;
+  response: {
+    /** The model TypeSafe reported. Preserved exactly as received. */
+    model: string;
+    answers: Answers;
+    usage?: Usage;
+  };
+  /** Wall time measured around the upstream call only, in milliseconds. */
+  durationMs: number;
+}
+
+/**
+ * Error codes the browser may receive. Each maps to one HTTP status and one
+ * fixed, sanitized message; upstream bodies and headers are never forwarded.
+ */
+export type EvaluationErrorCode =
+  | "not_configured"
+  | "invalid_request"
+  | "payload_too_large"
+  | "upstream_auth"
+  | "upstream_rate_limit"
+  | "upstream_timeout"
+  | "upstream_unavailable"
+  | "upstream_malformed"
+  | "request_aborted"
+  | "internal_error";
+
+export interface EvaluationErrorPayload {
+  error: {
+    code: EvaluationErrorCode;
+    message: string;
+  };
+}
+
+/** `GET /api/config`. `configured` means a key is present, nothing more. */
+export interface ConfigPayload {
+  configured: boolean;
+}
+
+/**
+ * What the browser knows about server configuration.
+ *
+ * `unknown` and `unavailable` are kept apart from `missing` because they mean
+ * different things to a user: one is "not asked yet or still asking", one is
+ * "the check itself failed", and only `missing` is "there is no key". In none of
+ * the three is Live mode offered, and in all four Fixture mode works.
+ */
+export type ConfigStatus = "unknown" | "configured" | "missing" | "unavailable";
 
 /** Answer shape narrowing helpers, used by rendering and composition code. */
 export function isNoulAnswer(answer: Answer): answer is NoulAnswer {

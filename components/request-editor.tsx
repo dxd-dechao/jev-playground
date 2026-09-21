@@ -3,16 +3,23 @@
 /**
  * Panel 2 of 3: the request.
  *
- * What is editable in JEV-01: the State JSON. Sample buttons replace State
- * only; Reset restores the whole preset. Full question editing, add/remove
- * controls, and an editable whole-request JSON view are deferred to a later
- * task, so the questions and the combined request are rendered read-only.
+ * What is editable: the State JSON. Sample buttons replace State only; Reset
+ * restores the whole preset. Full question editing, add/remove controls, and an
+ * editable whole-request JSON view are deferred to a later task, so the
+ * questions and the combined request are rendered read-only.
+ *
+ * This panel also owns the choice between Fixture and Live. The choice is
+ * explicit and the two actions are different buttons' worth of consequence: one
+ * shows hand-written data, the other spends a real model call. Nothing here
+ * submits anything on its own — typing, choosing a sample, resetting, and
+ * switching mode never trigger a call.
  */
 
 import { useId } from "react";
-import type { Question, Questions } from "@/lib/types";
+import type { ConfigStatus, Question, Questions } from "@/lib/types";
 import type { Scenario } from "@/lib/scenarios";
 import { sampleGroups } from "@/lib/scenarios";
+import type { PlaygroundMode } from "./response-panel";
 
 function questionTypeLabel(question: Question): string {
   switch (question.type) {
@@ -101,6 +108,18 @@ function CriteriaBody({ question }: { question: Question }) {
   );
 }
 
+/** The two things pressing the action button can mean. */
+const MODE_LABELS: Record<PlaygroundMode, string> = {
+  fixture: "Fixture",
+  live: "Live",
+};
+
+const MODE_DESCRIPTIONS: Record<PlaygroundMode, string> = {
+  fixture:
+    "Shows a fixed illustrative response. No model is called and no request leaves your browser.",
+  live: "Sends this State to TypeSafe Jev once per press. One press, one real billed call, no automatic retries.",
+};
+
 export function RequestEditor({
   scenario,
   stateText,
@@ -110,8 +129,13 @@ export function RequestEditor({
   matchedSampleId,
   parseError,
   validationErrors,
-  canPreview,
-  onPreview,
+  isRequestValid,
+  mode,
+  onModeChange,
+  configStatus,
+  onRecheckConfig,
+  isPending,
+  onSubmit,
 }: {
   scenario: Scenario;
   stateText: string;
@@ -124,13 +148,28 @@ export function RequestEditor({
   parseError: string | null;
   /** Schema problems, if the draft parses but is not a valid request. */
   validationErrors: string[];
-  canPreview: boolean;
-  onPreview: () => void;
+  /** The draft parses and validates. Necessary for either action, not sufficient for Live. */
+  isRequestValid: boolean;
+  mode: PlaygroundMode;
+  onModeChange: (mode: PlaygroundMode) => void;
+  /** What the server said about its own configuration. Never a key or a fragment. */
+  configStatus: ConfigStatus;
+  onRecheckConfig: () => void;
+  /** A live call for this scenario is in flight. */
+  isPending: boolean;
+  onSubmit: () => void;
 }) {
   const textareaId = useId();
   const errorId = useId();
   const questions: Questions = scenario.questions;
   const hasProblem = parseError !== null || validationErrors.length > 0;
+
+  // Live needs a valid request *and* a server that has something to
+  // authenticate with, and refuses a second press while one call is in flight.
+  const canSubmit =
+    mode === "fixture"
+      ? isRequestValid
+      : isRequestValid && configStatus === "configured" && !isPending;
 
   const requestPreview = (() => {
     let parsedState: unknown = null;
@@ -276,19 +315,73 @@ export function RequestEditor({
           </div>
         ) : null}
 
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            data-testid="preview-fixture"
-            disabled={!canPreview}
-            onClick={onPreview}
-            className="rounded-md bg-[var(--color-accent)] px-3.5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[var(--color-ink-soft)]/35 disabled:text-[var(--color-ink-soft)]"
+        {/* Mode ---------------------------------------------------------- */}
+        <fieldset className="mt-4 rounded-lg border border-[var(--color-line)] p-3">
+          <legend className="px-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
+            Mode
+          </legend>
+          <div
+            role="group"
+            aria-label="Evaluation mode"
+            className="flex flex-wrap gap-1.5"
           >
-            Preview fixture
-          </button>
+            {(["fixture", "live"] as const).map((candidate) => (
+              <button
+                key={candidate}
+                type="button"
+                data-testid={`mode-${candidate}`}
+                aria-pressed={mode === candidate}
+                onClick={() => onModeChange(candidate)}
+                className={`rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                  mode === candidate
+                    ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-ink)]"
+                    : "border-[var(--color-line)] text-[var(--color-ink-soft)] hover:border-[var(--color-ink-soft)]"
+                }`}
+              >
+                {MODE_LABELS[candidate]}
+              </button>
+            ))}
+          </div>
+          <p
+            data-testid="mode-description"
+            className="mt-2 text-xs text-[var(--color-ink-soft)]"
+          >
+            {MODE_DESCRIPTIONS[mode]}
+          </p>
+          {mode === "live" ? (
+            <ConfigNotice status={configStatus} onRecheck={onRecheckConfig} />
+          ) : null}
+        </fieldset>
+
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {mode === "fixture" ? (
+            <button
+              type="button"
+              data-testid="preview-fixture"
+              disabled={!canSubmit}
+              onClick={onSubmit}
+              className="rounded-md bg-[var(--color-accent)] px-3.5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[var(--color-ink-soft)]/35 disabled:text-[var(--color-ink-soft)]"
+            >
+              Preview fixture
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="evaluate-live"
+              disabled={!canSubmit}
+              aria-busy={isPending}
+              onClick={onSubmit}
+              className="rounded-md bg-[var(--color-accent)] px-3.5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[var(--color-ink-soft)]/35 disabled:text-[var(--color-ink-soft)]"
+            >
+              {isPending ? "Evaluating with Jev…" : "Evaluate with Jev"}
+            </button>
+          )}
           <span className="text-xs text-[var(--color-ink-soft)]">
-            Shows a fixed illustrative response. No model is called and no
-            request leaves your browser.
+            {mode === "fixture"
+              ? "No request is sent. Nothing is measured."
+              : isPending
+                ? "One request is in flight. The button stays disabled until it finishes, so a second press cannot start a second call."
+                : "The server chooses the model and holds the key. This State is sent as it appears above."}
           </span>
         </div>
       </div>
@@ -335,9 +428,11 @@ export function RequestEditor({
           Full request JSON (read-only)
         </summary>
         <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-          The <code>{"{ state, questions }"}</code> pair as it would be
-          submitted. <code>model</code> is absent by design: it belongs to the
-          server in a later task, and nothing is submitted in this version.
+          The <code>{"{ state, questions }"}</code> pair as it is submitted in
+          Live mode. <code>model</code> is absent by design: the browser sends
+          only <code>{"{ scenarioId, state }"}</code>, and the server resolves
+          these same preset questions and chooses the model, so a page cannot ask
+          for a different model or a different set of questions.
         </p>
         <pre
           data-testid="request-json"
@@ -348,6 +443,54 @@ export function RequestEditor({
         </pre>
       </details>
     </section>
+  );
+}
+
+/**
+ * What the server said about its own configuration, in words a reader can act
+ * on. Deliberately says nothing about the key itself — not its value, not its
+ * length, not its prefix — and never claims the key works.
+ */
+function ConfigNotice({
+  status,
+  onRecheck,
+}: {
+  status: ConfigStatus;
+  onRecheck: () => void;
+}) {
+  const text: Record<ConfigStatus, string> = {
+    unknown:
+      "Checking whether this server has a TypeSafe API key. Live mode stays disabled until the check answers.",
+    configured:
+      "This server has an API key. That means a key is present — not that it is valid, funded, or accepted: only a real call can show that, and this check does not make one.",
+    missing:
+      "This server has no TypeSafe API key, so Live mode is disabled. Put TYPESAFE_API_KEY in .env.local, restart the dev server, then re-check. Fixture mode needs no key.",
+    unavailable:
+      "The configuration check itself failed, so Live mode is disabled. Fixture mode is unaffected.",
+  };
+
+  return (
+    <div
+      data-testid="config-status"
+      data-status={status}
+      className={`mt-2 rounded-md border p-2.5 text-xs ${
+        status === "configured"
+          ? "border-[var(--color-line)] text-[var(--color-ink-soft)]"
+          : "border-[var(--color-warn)] bg-[var(--color-warn-soft)] text-[var(--color-ink)]"
+      }`}
+    >
+      <p>{text[status]}</p>
+      {status === "configured" ? null : (
+        <button
+          type="button"
+          data-testid="config-recheck"
+          onClick={onRecheck}
+          className="mt-2 rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1 text-xs font-medium hover:border-[var(--color-ink-soft)]"
+        >
+          Re-check configuration
+        </button>
+      )}
+    </div>
   );
 }
 
