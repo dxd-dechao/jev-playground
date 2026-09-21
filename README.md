@@ -199,16 +199,19 @@ custom-question views.
 
 Three panels, left to right (stacked on narrow viewports):
 
-1. **Scenarios** — pick Student safety guardrails or Municipal ticket triage. Each carries
-   its own purpose and caveat. Safety is the default.
-2. **Request** — grouped sample buttons replace the State **only** and keep your questions;
-   **Reset to preset** restores the scenario's default State *and* questions and discards
-   any invalid draft. The request is edited in one of two views (see
-   [Editing the request](#editing-the-request)): a **Form** or the **Whole-request JSON**.
-   **Mode** selects Fixture or Live; the action button below it is **Preview fixture** or
-   **Evaluate with Jev** accordingly (**⌘/Ctrl+Enter** does the same). Preview is available
-   only for the scenario's default questions; the live button stays disabled until the
-   request validates *and* the server reports a key.
+1. **Scenarios** — two card buttons, Student safety guardrails and Municipal ticket triage.
+   Each card shows the preset's question types and a one-sentence purpose; the selected card
+   is yellow. Safety is the default. The full purpose and the scenario's caveat are in the
+   **About this scenario** disclosure under the Request heading.
+2. **Request** — a **Form** / **Whole-request JSON** switch sits beside the heading (see
+   [Editing the request](#editing-the-request)). Below it, one box holds **Mode** (Fixture
+   or Live) and the single action button, **Preview fixture** or **Evaluate with Jev**
+   (**⌘/Ctrl+Enter** does the same). State and every question are always submitted together
+   as **one** request. Preview is available only for the scenario's default questions; the
+   live button stays disabled until the request validates *and* the server reports a key.
+   Then the **State** section: grouped sample buttons replace the State **only** and keep
+   your questions; **Reset to preset** (in red) restores the scenario's default State *and*
+   questions and discards any invalid draft. Samples and Reset work in either view.
 3. **Response** — answers as cards or as raw JSON, always under a badge naming their source:
    **Fixture data — no model call** or **Live Jev response — real model call**. Both views
    state the source in words as well.
@@ -247,7 +250,9 @@ invalid JSON — across scenario switches.
     edited, the text becomes a JSON string literal — it is never re-read as structure,
     and nothing is dropped.
   Content is never trimmed.
-- **Questions**: edit each question's id, type, instructions, and criteria; add and remove
+- **Questions** sit below State, one card per question (the coloured edge marks the type,
+  which is also written out). The cards are presentation only: there is no per-card
+  submission. Edit each question's id, type, instructions, and criteria; add and remove
   questions; add, remove, and rename Choice options (a description may be text, JSON, or an
   explicit `null`); add, remove, and reorder Score levels (2–10); and edit or omit a Noul's
   yes/no descriptions. Instructions and criteria can be switched to a JSON text box for

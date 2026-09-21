@@ -49,11 +49,12 @@ const MODE_DESCRIPTIONS: Record<PlaygroundMode, string> = {
   live: "Sends this request — State and questions — to TypeSafe Jev once per submission. One submission, one real billed call, no automatic retries.",
 };
 
-const toggleClass = (active: boolean) =>
-  `rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+/** One half of a two-way switch: yellow when chosen. */
+const segmentClass = (active: boolean) =>
+  `min-h-9 px-3 py-1 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:text-[var(--color-ink-soft)] disabled:line-through ${
     active
-      ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-ink)]"
-      : "border-[var(--color-line)] text-[var(--color-ink-soft)] hover:border-[var(--color-ink-soft)]"
+      ? "bg-[var(--color-highlight)] text-[var(--color-ink)]"
+      : "bg-[var(--color-panel)] text-[var(--color-ink)] hover:bg-[var(--color-canvas)]"
   }`;
 
 export function RequestEditor({
@@ -119,201 +120,259 @@ export function RequestEditor({
   const stateErrorId = useId();
   const jsonTextareaId = useId();
   const problemsId = useId();
+  const submitNoteId = useId();
 
   // The Form can be serialized to JSON only when it converts; duplicate ids,
   // for instance, have no faithful JSON object form.
   const canOpenJson = draft.requestJson !== null || reading.request !== null;
   const problems = [...reading.errors, ...validationErrors];
   const hasProblems = problems.length > 0;
+  // How many questions the one request would carry, when it can be read.
+  const questionCount =
+    reading.request !== null ? Object.keys(reading.request.questions).length : null;
 
   return (
-    <section
-      aria-labelledby="request-heading"
-      className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel)] p-5"
-    >
-      <h2
-        id="request-heading"
-        className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]"
-      >
-        Request
-      </h2>
-
-      {/* Sample states ------------------------------------------------- */}
-      <div className="mt-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-sm font-semibold">Sample states</h3>
+    <section aria-labelledby="request-heading">
+      {/* Heading and view switch ------------------------------------------ */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="request-heading" className="tag-heading">
+          Request
+        </h2>
+        <div
+          role="group"
+          aria-label="Request view"
+          className="flex border-2 border-[var(--color-line)] bg-[var(--color-panel)] shadow-[3px_3px_0_var(--color-line)]"
+        >
           <button
             type="button"
-            data-testid="reset-preset"
-            onClick={onReset}
-            className="rounded-md border border-[var(--color-line)] px-2.5 py-1 text-xs font-medium hover:border-[var(--color-ink-soft)]"
+            data-testid="request-view-form"
+            aria-pressed={draft.view === "form"}
+            onClick={() => onViewChange("form")}
+            className={segmentClass(draft.view === "form")}
           >
-            Reset to preset
+            Form
+          </button>
+          <button
+            type="button"
+            data-testid="request-view-json"
+            aria-pressed={draft.view === "json"}
+            disabled={!canOpenJson}
+            onClick={() => onViewChange("json")}
+            className={`${segmentClass(draft.view === "json")} border-l-2 border-[var(--color-line)]`}
+          >
+            Whole-request JSON
           </button>
         </div>
-        <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-          A sample button replaces the State only; your questions are kept.
-          Reset restores this scenario&rsquo;s default State <em>and</em>{" "}
-          questions, and discards any invalid draft.
-        </p>
-
-        {sampleGroups(scenario).map((group) => (
-          <div key={group.group} className="mt-3">
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
-              {group.group}
-            </h4>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {group.samples.map((sample) => {
-                const isLoaded = sample.id === matchedSampleId;
-                return (
-                  <button
-                    key={sample.id}
-                    type="button"
-                    data-testid={`sample-${sample.id}`}
-                    aria-pressed={isLoaded}
-                    disabled={formLocked}
-                    onClick={() => onLoadSample(sample.id)}
-                    className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                      isLoaded
-                        ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-ink)]"
-                        : "border-[var(--color-line)] hover:border-[var(--color-ink-soft)]"
-                    }`}
-                  >
-                    {sample.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        {formLocked ? (
-          <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-            Samples are unavailable while the whole-request JSON is invalid,
-            because loading one would overwrite what you typed.
-          </p>
-        ) : null}
-
-        {matchedSampleId ? (
-          <SampleMetadata scenario={scenario} sampleId={matchedSampleId} />
-        ) : (
-          <p
-            data-testid="custom-state-note"
-            className="mt-3 rounded-lg border border-dashed border-[var(--color-line)] p-2.5 text-xs text-[var(--color-ink-soft)]"
-          >
-            Custom State — this does not match any sample, so no sample fixture
-            or expected outcome applies.
-          </p>
-        )}
       </div>
+      {!canOpenJson ? (
+        <p data-testid="json-view-blocked" className="mt-2 text-xs text-[var(--color-ink-soft)]">
+          The JSON view opens once the Form can be written as one JSON object:
+          fix the duplicate ids or invalid JSON fields listed below first.
+        </p>
+      ) : null}
 
-      {/* View ------------------------------------------------------------ */}
-      <div className="mt-6 border-t border-[var(--color-line)] pt-4">
+      <details data-testid="scenario-about" className="disclosure mt-4 text-sm">
+        <summary className="inline-block font-semibold">About this scenario</summary>
+        <div className="mt-2 space-y-2 border-l-4 border-[var(--color-line)] pl-3">
+          <p>{scenario.purpose}</p>
+          <p
+            data-testid="scenario-caveat"
+            className="border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-2.5 text-xs"
+          >
+            {scenario.caveat}
+          </p>
+        </div>
+      </details>
+
+      {/* Mode, configuration and the one submission ------------------------ */}
+      <div data-testid="submit-area" className="hard-card mt-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">State and questions</h3>
-          <div role="group" aria-label="Request view" className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              data-testid="request-view-form"
-              aria-pressed={draft.view === "form"}
-              onClick={() => onViewChange("form")}
-              className={toggleClass(draft.view === "form")}
-            >
-              Form
-            </button>
-            <button
-              type="button"
-              data-testid="request-view-json"
-              aria-pressed={draft.view === "json"}
-              disabled={!canOpenJson}
-              onClick={() => onViewChange("json")}
-              className={toggleClass(draft.view === "json")}
-            >
-              Whole-request JSON
-            </button>
+          <span className="field-label" id={`${submitNoteId}-mode`}>
+            Mode
+          </span>
+          <div
+            role="group"
+            aria-label="Evaluation mode"
+            className="flex border-2 border-[var(--color-line)]"
+          >
+            {(["fixture", "live"] as const).map((candidate, index) => (
+              <button
+                key={candidate}
+                type="button"
+                data-testid={`mode-${candidate}`}
+                aria-pressed={mode === candidate}
+                onClick={() => onModeChange(candidate)}
+                className={`${segmentClass(mode === candidate)} ${
+                  index > 0 ? "border-l-2 border-[var(--color-line)]" : ""
+                }`}
+              >
+                {MODE_LABELS[candidate]}
+              </button>
+            ))}
           </div>
         </div>
-        {!canOpenJson ? (
-          <p data-testid="json-view-blocked" className="mt-1 text-xs text-[var(--color-ink-soft)]">
-            The JSON view opens once the Form can be written as one JSON object:
-            fix the duplicate ids or invalid JSON fields listed below first.
+        <p data-testid="mode-description" className="mt-2 text-xs text-[var(--color-ink-soft)]">
+          {MODE_DESCRIPTIONS[mode]}
+        </p>
+        {mode === "live" ? (
+          <ConfigNotice status={configStatus} onRecheck={onRecheckConfig} />
+        ) : null}
+        {mode === "fixture" && reading.request !== null && !questionsAreDefault ? (
+          <p
+            data-testid="fixture-unavailable"
+            className="mt-2 border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-2.5 text-xs text-[var(--color-ink)]"
+          >
+            No fixture exists for these questions. Fixtures were written by hand
+            as answers to this scenario&rsquo;s default questions, and showing
+            them here would present old answers as answers to your criteria.
+            Switch to Live to evaluate the edited questions — your edits are
+            kept — or Reset to preset.
           </p>
         ) : null}
 
-        {draft.view === "json" ? (
-          <div className="mt-3">
-            <label htmlFor={jsonTextareaId} className="text-sm font-semibold">
-              Whole request JSON
-            </label>
-            <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-              Exactly <code>{"{ state, questions }"}</code>. A valid edit is
-              reflected in the Form; an invalid one is kept as typed. There is
-              no <code>model</code> field: the server chooses the model and
-              holds the key, and rejects any request that names either.
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+          {mode === "fixture" ? (
+            <button
+              type="button"
+              data-testid="preview-fixture"
+              disabled={!canSubmit}
+              aria-describedby={`${submitNoteId}${hasProblems ? ` ${problemsId}` : ""}`}
+              onClick={onSubmit}
+              className="btn-primary"
+            >
+              <span aria-hidden="true">▶</span>
+              Preview fixture
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="evaluate-live"
+              disabled={!canSubmit}
+              aria-busy={isPending}
+              aria-keyshortcuts="Meta+Enter Control+Enter"
+              aria-describedby={`${submitNoteId}${hasProblems ? ` ${problemsId}` : ""}`}
+              onClick={onSubmit}
+              className="btn-primary"
+            >
+              <span aria-hidden="true">▶</span>
+              {isPending ? "Evaluating with Jev…" : "Evaluate with Jev"}
+            </button>
+          )}
+          <div id={submitNoteId} className="min-w-0 flex-1 basis-56 text-xs">
+            <p data-testid="request-summary" className="font-semibold">
+              {questionCount === null
+                ? "One request: State and every question, submitted together."
+                : `One request: State and ${questionCount} question${
+                    questionCount === 1 ? "" : "s"
+                  }, submitted together.`}
             </p>
-            <textarea
-              id={jsonTextareaId}
-              data-testid="request-json-editor"
-              value={draft.requestJson ?? ""}
-              spellCheck={false}
-              rows={22}
-              onChange={(event) => onRequestJsonChange(event.target.value)}
-              aria-invalid={reading.errors.length > 0}
-              aria-describedby={hasProblems ? problemsId : undefined}
-              className={`mt-2 w-full resize-y rounded-lg border bg-[var(--color-canvas)] p-3 font-mono text-[11px] leading-relaxed ${
-                reading.errors.length > 0
-                  ? "border-[var(--color-danger)]"
-                  : "border-[var(--color-line)]"
-              }`}
-            />
+            <p className="mt-0.5 text-[var(--color-ink-soft)]">
+              {mode === "fixture"
+                ? "No request is sent. Nothing is measured."
+                : isPending
+                  ? "One request is in flight. Submission stays disabled until it finishes, so a second press cannot start a second call."
+                  : "The server chooses the model and holds the key. This request is sent exactly as it appears below."}{" "}
+              <span data-testid="shortcut-hint">
+                Shortcut: <kbd className="font-mono">⌘</kbd>/<kbd className="font-mono">Ctrl</kbd>+
+                <kbd className="font-mono">Enter</kbd>.
+              </span>
+            </p>
+            {!isRequestValid ? (
+              <p className="mt-0.5 font-semibold text-[var(--color-danger)]">
+                Submission is disabled until the request is valid.
+              </p>
+            ) : null}
           </div>
-        ) : formLocked ? (
-          <div
-            data-testid="form-locked"
-            role="status"
-            className="mt-3 rounded-lg border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-xs"
-          >
-            <p className="font-semibold">
-              The Form is read-only while the whole-request JSON is invalid.
-            </p>
-            <p className="mt-1 text-[var(--color-ink-soft)]">
-              Your JSON is kept exactly as typed and has not been replaced by an
-              earlier valid version. Return to it to fix the problems below, or
-              reset this scenario to its preset.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                data-testid="return-to-json"
-                onClick={() => onViewChange("json")}
-                className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1 text-xs font-medium hover:border-[var(--color-ink-soft)]"
-              >
-                Return to JSON
-              </button>
-              <button
-                type="button"
-                data-testid="locked-reset"
-                onClick={onReset}
-                className="rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1 text-xs font-medium hover:border-[var(--color-ink-soft)]"
-              >
-                Reset to preset
-              </button>
-            </div>
+        </div>
+      </div>
+
+      {/* State: samples and reset in every view; its editor in the Form ---- */}
+      <div className="mt-8">
+        <section
+          aria-labelledby={`${stateTextareaId}-heading`}
+          data-testid="state-section"
+          className="hard-card p-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 id={`${stateTextareaId}-heading`} className="text-lg font-extrabold">
+              <label htmlFor={stateTextareaId}>State</label>
+            </h3>
+            <button
+              type="button"
+              data-testid="reset-preset"
+              onClick={onReset}
+              className="btn btn-danger"
+            >
+              Reset to preset
+            </button>
           </div>
-        ) : (
-          <>
-            {/* State ------------------------------------------------------ */}
-            <div className="mt-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <label htmlFor={stateTextareaId} className="text-sm font-semibold">
-                  State
-                </label>
-                <div role="group" aria-label="State format" className="flex gap-1.5">
+          <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+            What every question is evaluated against. A sample button
+            replaces the State only; your questions are kept. Reset restores
+            this scenario&rsquo;s default State <em>and</em> questions, and
+            discards any invalid draft.
+          </p>
+
+          <div className="mt-3 space-y-2.5">
+            {sampleGroups(scenario).map((group) => (
+              <div key={group.group}>
+                <h4 className="field-label text-[var(--color-ink-soft)]">{group.group}</h4>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {group.samples.map((sample) => {
+                    const isLoaded = sample.id === matchedSampleId;
+                    return (
+                      <button
+                        key={sample.id}
+                        type="button"
+                        data-testid={`sample-${sample.id}`}
+                        aria-pressed={isLoaded}
+                        disabled={formLocked}
+                        onClick={() => onLoadSample(sample.id)}
+                        className="btn"
+                      >
+                        {sample.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {formLocked ? (
+            <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+              Samples are unavailable while the whole-request JSON is invalid,
+              because loading one would overwrite what you typed.
+            </p>
+          ) : null}
+
+          {matchedSampleId ? (
+            <SampleMetadata scenario={scenario} sampleId={matchedSampleId} />
+          ) : (
+            <p
+              data-testid="custom-state-note"
+              className="mt-3 border-2 border-dashed border-[var(--color-line-soft)] p-2.5 text-xs text-[var(--color-ink-soft)]"
+            >
+              Custom State — this does not match any sample, so no sample
+              fixture or expected outcome applies.
+            </p>
+          )}
+
+          {draft.view === "form" && !formLocked ? (
+            <>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <span className="field-label">Format</span>
+                <div
+                  role="group"
+                  aria-label="State format"
+                  className="flex border-2 border-[var(--color-line)]"
+                >
                   <button
                     type="button"
                     data-testid="state-mode-json"
                     aria-pressed={draft.state.mode === "json"}
                     onClick={() => onStateModeChange("json")}
-                    className={toggleClass(draft.state.mode === "json")}
+                    className={segmentClass(draft.state.mode === "json")}
                   >
                     JSON
                   </button>
@@ -322,7 +381,7 @@ export function RequestEditor({
                     data-testid="state-mode-text"
                     aria-pressed={draft.state.mode === "text"}
                     onClick={() => onStateModeChange("text")}
-                    className={toggleClass(draft.state.mode === "text")}
+                    className={`${segmentClass(draft.state.mode === "text")} border-l-2 border-[var(--color-line)]`}
                   >
                     Text
                   </button>
@@ -343,13 +402,9 @@ export function RequestEditor({
                 onChange={(event) => onStateTextChange(event.target.value)}
                 aria-invalid={reading.stateError !== null}
                 aria-describedby={reading.stateError !== null ? stateErrorId : undefined}
-                rows={draft.state.mode === "json" ? 14 : 6}
-                className={`mt-2 w-full resize-y rounded-lg border bg-[var(--color-canvas)] p-3 text-xs leading-relaxed ${
+                rows={draft.state.mode === "json" ? 12 : 6}
+                className={`input mt-2 resize-y p-3 text-xs leading-relaxed ${
                   draft.state.mode === "json" ? "font-mono" : ""
-                } ${
-                  reading.stateError !== null
-                    ? "border-[var(--color-danger)]"
-                    : "border-[var(--color-line)]"
                 }`}
               />
               {reading.stateError !== null ? (
@@ -357,7 +412,7 @@ export function RequestEditor({
                   id={stateErrorId}
                   data-testid="state-errors"
                   role="alert"
-                  className="mt-2 rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3"
+                  className="mt-2 border-2 border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3"
                 >
                   <p className="text-sm font-semibold text-[var(--color-danger)]">
                     This State is not valid JSON, so it cannot be submitted.
@@ -373,13 +428,82 @@ export function RequestEditor({
                   </p>
                 </div>
               ) : null}
-            </div>
+            </>
+          ) : (
+            <p data-testid="state-in-json-note" className="mt-4 text-xs text-[var(--color-ink-soft)]">
+              {draft.view === "json"
+                ? "State is edited as the \"state\" field of the whole-request JSON below."
+                : "State is part of the invalid whole-request JSON; fix it there or reset."}
+            </p>
+          )}
+        </section>
 
-            {/* Questions -------------------------------------------------- */}
-            <div className="mt-6">
-              <QuestionEditor rows={draft.rows} onChange={onRowsChange} />
+        {/* Questions, the whole-request JSON, or the locked notice -------- */}
+        {draft.view === "json" ? (
+          <div className="mt-10 border-t-4 border-[var(--color-line)] pt-6">
+            <div className="hard-card p-4">
+              <label htmlFor={jsonTextareaId} className="text-lg font-extrabold">
+                Whole request JSON
+              </label>
+              <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
+                Exactly <code>{"{ state, questions }"}</code> — the one request the
+                Form edits too. A valid edit is reflected in the Form; an invalid
+                one is kept as typed. There is no <code>model</code> field: the
+                server chooses the model and holds the key, and rejects any request
+                that names either.
+              </p>
+              <textarea
+                id={jsonTextareaId}
+                data-testid="request-json-editor"
+                value={draft.requestJson ?? ""}
+                spellCheck={false}
+                rows={22}
+                onChange={(event) => onRequestJsonChange(event.target.value)}
+                aria-invalid={reading.errors.length > 0}
+                aria-describedby={hasProblems ? problemsId : undefined}
+                className="input mt-3 resize-y p-3 font-mono text-[11px] leading-relaxed"
+              />
             </div>
-          </>
+          </div>
+        ) : formLocked ? (
+          <div className="mt-10 border-t-4 border-[var(--color-line)] pt-6">
+            <div
+              data-testid="form-locked"
+              role="status"
+              className="border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-xs"
+            >
+              <p className="font-semibold">
+                The Form is read-only while the whole-request JSON is invalid.
+              </p>
+              <p className="mt-1 text-[var(--color-ink-soft)]">
+                Your JSON is kept exactly as typed and has not been replaced by an
+                earlier valid version. Return to it to fix the problems below, or
+                reset this scenario to its preset.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  data-testid="return-to-json"
+                  onClick={() => onViewChange("json")}
+                  className="btn"
+                >
+                  Return to JSON
+                </button>
+                <button
+                  type="button"
+                  data-testid="locked-reset"
+                  onClick={onReset}
+                  className="btn btn-danger"
+                >
+                  Reset to preset
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-10 border-t-4 border-[var(--color-line)] pt-6">
+            <QuestionEditor rows={draft.rows} onChange={onRowsChange} />
+          </div>
         )}
 
         {hasProblems ? (
@@ -387,7 +511,7 @@ export function RequestEditor({
             id={problemsId}
             data-testid="request-errors"
             role="alert"
-            className="mt-3 rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3"
+            className="mt-4 border-2 border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-3"
           >
             <p className="text-sm font-semibold text-[var(--color-danger)]">
               {reading.errors.length > 0
@@ -411,7 +535,7 @@ export function RequestEditor({
           <div
             data-testid="request-warnings"
             role="status"
-            className="mt-3 rounded-lg border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-xs"
+            className="mt-4 border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-3 text-xs"
           >
             <p className="font-semibold">Valid, but check this before submitting</p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5">
@@ -420,85 +544,6 @@ export function RequestEditor({
               ))}
             </ul>
           </div>
-        ) : null}
-      </div>
-
-      {/* Mode ------------------------------------------------------------ */}
-      <fieldset className="mt-5 rounded-lg border border-[var(--color-line)] p-3">
-        <legend className="px-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
-          Mode
-        </legend>
-        <div role="group" aria-label="Evaluation mode" className="flex flex-wrap gap-1.5">
-          {(["fixture", "live"] as const).map((candidate) => (
-            <button
-              key={candidate}
-              type="button"
-              data-testid={`mode-${candidate}`}
-              aria-pressed={mode === candidate}
-              onClick={() => onModeChange(candidate)}
-              className={toggleClass(mode === candidate)}
-            >
-              {MODE_LABELS[candidate]}
-            </button>
-          ))}
-        </div>
-        <p data-testid="mode-description" className="mt-2 text-xs text-[var(--color-ink-soft)]">
-          {MODE_DESCRIPTIONS[mode]}
-        </p>
-        {mode === "live" ? (
-          <ConfigNotice status={configStatus} onRecheck={onRecheckConfig} />
-        ) : null}
-        {mode === "fixture" && reading.request !== null && !questionsAreDefault ? (
-          <p
-            data-testid="fixture-unavailable"
-            className="mt-2 rounded-md border border-[var(--color-warn)] bg-[var(--color-warn-soft)] p-2.5 text-xs text-[var(--color-ink)]"
-          >
-            No fixture exists for these questions. Fixtures were written by hand
-            as answers to this scenario&rsquo;s default questions, and showing
-            them here would present old answers as answers to your criteria.
-            Switch to Live to evaluate the edited questions — your edits are
-            kept — or Reset to preset.
-          </p>
-        ) : null}
-      </fieldset>
-
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        {mode === "fixture" ? (
-          <button
-            type="button"
-            data-testid="preview-fixture"
-            disabled={!canSubmit}
-            onClick={onSubmit}
-            className="rounded-md bg-[var(--color-accent)] px-3.5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[var(--color-ink-soft)]/35 disabled:text-[var(--color-ink-soft)]"
-          >
-            Preview fixture
-          </button>
-        ) : (
-          <button
-            type="button"
-            data-testid="evaluate-live"
-            disabled={!canSubmit}
-            aria-busy={isPending}
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-            onClick={onSubmit}
-            className="rounded-md bg-[var(--color-accent)] px-3.5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-[var(--color-ink-soft)]/35 disabled:text-[var(--color-ink-soft)]"
-          >
-            {isPending ? "Evaluating with Jev…" : "Evaluate with Jev"}
-          </button>
-        )}
-        <span className="text-xs text-[var(--color-ink-soft)]">
-          {mode === "fixture"
-            ? "No request is sent. Nothing is measured."
-            : isPending
-              ? "One request is in flight. Submission stays disabled until it finishes, so a second press cannot start a second call."
-              : "The server chooses the model and holds the key. This request is sent exactly as it appears above."}{" "}
-          <span data-testid="shortcut-hint">
-            Shortcut: <kbd className="font-mono">⌘</kbd>/<kbd className="font-mono">Ctrl</kbd>+
-            <kbd className="font-mono">Enter</kbd>.
-          </span>
-        </span>
-        {!isRequestValid ? (
-          <span className="sr-only">Submission is disabled until the request is valid.</span>
         ) : null}
       </div>
     </section>
@@ -532,9 +577,9 @@ function ConfigNotice({
     <div
       data-testid="config-status"
       data-status={status}
-      className={`mt-2 rounded-md border p-2.5 text-xs ${
+      className={`mt-2 border-2 p-2.5 text-xs ${
         status === "configured"
-          ? "border-[var(--color-line)] text-[var(--color-ink-soft)]"
+          ? "border-[var(--color-line-soft)] text-[var(--color-ink-soft)]"
           : "border-[var(--color-warn)] bg-[var(--color-warn-soft)] text-[var(--color-ink)]"
       }`}
     >
@@ -544,7 +589,7 @@ function ConfigNotice({
           type="button"
           data-testid="config-recheck"
           onClick={onRecheck}
-          className="mt-2 rounded-md border border-[var(--color-line)] bg-[var(--color-panel)] px-2.5 py-1 text-xs font-medium hover:border-[var(--color-ink-soft)]"
+          className="btn mt-2"
         >
           Re-check configuration
         </button>
@@ -565,22 +610,23 @@ function SampleMetadata({
   return (
     <div
       data-testid="selected-sample-info"
-      className="mt-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-canvas)] p-3"
+      className="mt-3 border-2 border-dashed border-[var(--color-line)] bg-[var(--color-canvas)] p-3"
     >
-      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
+      <h4 className="field-label text-[var(--color-ink-soft)]">
         Sample metadata — not submitted
       </h4>
       <p className="mt-1 text-xs text-[var(--color-ink)]">
         <span className="font-semibold">Proposed expected outcome:</span>{" "}
         {sample.expected}
       </p>
-      {sample.note ? (
-        <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{sample.note}</p>
-      ) : null}
-      <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-        This expectation is a proposal for review, not measured Jev performance.
-        It is held outside State and is never sent.
-      </p>
+      <details className="disclosure mt-1 text-xs text-[var(--color-ink-soft)]">
+        <summary className="font-semibold text-[var(--color-ink)]">About this sample</summary>
+        {sample.note ? <p className="mt-1">{sample.note}</p> : null}
+        <p className="mt-1">
+          This expectation is a proposal for review, not measured Jev
+          performance. It is held outside State and is never sent.
+        </p>
+      </details>
     </div>
   );
 }

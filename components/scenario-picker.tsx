@@ -1,8 +1,33 @@
 "use client";
 
-/** Panel 1 of 3: choose a scenario. */
+/**
+ * Panel 1 of 3: choose a scenario.
+ *
+ * Each scenario is one full-card button: its name, the distinct question types
+ * its preset asks, and a one-sentence purpose. The full purpose and the
+ * scenario's caveat live in the "About this scenario" disclosure beside the
+ * request heading.
+ */
 
 import type { Scenario, ScenarioId } from "@/lib/scenarios";
+
+/** One sentence per preset, for the card. The full purpose is in the disclosure. */
+const CARD_SUMMARIES: Record<ScenarioId, string> = {
+  safety:
+    "Screen a student's message for self-harm concerns and targeted insults, and pick a handling path.",
+  municipal:
+    "Pick the best agency and the next routing step for one piece of resident feedback.",
+};
+
+/** The preset's distinct question types, in the order its questions appear. */
+function presetTypes(scenario: Scenario): string[] {
+  const types: string[] = [];
+  for (const id of scenario.questionOrder) {
+    const type = scenario.questions[id]?.type;
+    if (type && !types.includes(type)) types.push(type);
+  }
+  return types;
+}
 
 export function ScenarioPicker({
   scenarios,
@@ -14,18 +39,12 @@ export function ScenarioPicker({
   onSelect: (id: ScenarioId) => void;
 }) {
   return (
-    <section
-      aria-labelledby="scenarios-heading"
-      className="rounded-xl border border-[var(--color-line)] bg-[var(--color-panel)] p-5"
-    >
-      <h2
-        id="scenarios-heading"
-        className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]"
-      >
+    <section aria-labelledby="scenarios-heading">
+      <h2 id="scenarios-heading" className="tag-heading">
         Scenarios
       </h2>
 
-      <ul role="list" className="mt-4 space-y-3">
+      <ul role="list" className="mt-5 space-y-5">
         {scenarios.map((scenario) => {
           const isActive = scenario.id === activeId;
           return (
@@ -35,44 +54,31 @@ export function ScenarioPicker({
                 aria-current={isActive ? "true" : undefined}
                 data-testid={`scenario-${scenario.id}`}
                 onClick={() => onSelect(scenario.id)}
-                className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                  isActive
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
-                    : "border-[var(--color-line)] bg-[var(--color-panel)] hover:border-[var(--color-ink-soft)]"
+                className={`hard-card block w-full p-4 text-left transition-transform hover:-translate-x-px hover:-translate-y-px ${
+                  isActive ? "!bg-[var(--color-highlight)]" : ""
                 }`}
               >
-                <span className="flex items-baseline justify-between gap-2">
-                  <span className="font-semibold">{scenario.name}</span>
+                <span className="block text-lg font-extrabold leading-snug">
+                  {scenario.name}
+                </span>
+                <span className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="badge" data-testid={`scenario-types-${scenario.id}`}>
+                    {presetTypes(scenario).join(" · ")}
+                  </span>
                   {isActive ? (
-                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)]">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest">
                       Selected
                     </span>
                   ) : null}
                 </span>
-                <span className="mt-1 block text-xs text-[var(--color-ink-soft)]">
-                  {scenario.questionOrder.length} questions,{" "}
-                  {scenario.samples.length} samples
+                <span className="mt-2 block text-sm leading-relaxed">
+                  {CARD_SUMMARIES[scenario.id]}
                 </span>
               </button>
             </li>
           );
         })}
       </ul>
-
-      <div className="mt-5 border-t border-[var(--color-line)] pt-4">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]">
-          About this scenario
-        </h3>
-        <p className="mt-2 text-sm text-[var(--color-ink-soft)]">
-          {scenarios.find((scenario) => scenario.id === activeId)?.purpose}
-        </p>
-        <p
-          data-testid="scenario-caveat"
-          className="mt-3 rounded-lg bg-[var(--color-warn-soft)] p-3 text-xs text-[var(--color-ink)]"
-        >
-          {scenarios.find((scenario) => scenario.id === activeId)?.caveat}
-        </p>
-      </div>
     </section>
   );
 }

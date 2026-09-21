@@ -761,3 +761,114 @@ test("lays out the editor without horizontal overflow and saves screenshots", as
     expect(name.length, await control.getAttribute("data-testid") ?? "control").toBeGreaterThan(0);
   }
 });
+
+/* ------------------------------------------- JEV-07 card compatibility -- */
+
+/**
+ * The State section and the separate question cards are presentation only:
+ * editing State and two different cards still yields exactly one request with
+ * the exact `{ state, questions }` on screen, and the answers rendered belong
+ * to that snapshot. Checked for both presets.
+ */
+for (const scenarioId of ["safety", "municipal"] as const) {
+  test(`${scenarioId}: State and two question cards are submitted together as one exact request`, async ({
+    page,
+  }) => {
+    const scenario = getScenario(scenarioId);
+    const evaluate = await goLive(page);
+    await page.getByTestId(`scenario-${scenarioId}`).click();
+    await expect(page.getByTestId(`scenario-${scenarioId}`)).toHaveAttribute("aria-current", "true");
+
+    // Samples, view switches and edits alone never evaluate.
+    const otherSample = scenario.samples.find((sample) => sample.id !== scenario.defaultSampleId)!;
+    await page.getByTestId(`sample-${otherSample.id}`).click();
+    await page.getByTestId("request-view-json").click();
+    await page.getByTestId("request-view-form").click();
+    await page.getByTestId(`sample-${scenario.defaultSampleId}`).click();
+
+    // Edit State.
+    const stateEditor = page.getByTestId("state-editor");
+    const state = JSON.parse(await stateEditor.inputValue()) as Record<string, unknown>;
+    const field = scenarioId === "safety" ? "student_message" : "feedback";
+    state[field] = `Edited ${scenarioId} State for the card check.`;
+    await stateEditor.fill(JSON.stringify(state, null, 2));
+
+    // Edit two separate question cards, including their criteria.
+    const expected = structuredClone(scenario.questions) as Record<
+      string,
+      { type: string; instructions: unknown; criteria?: Record<string, unknown> }
+    >;
+    const [firstId, secondId] = scenario.questionOrder as [string, string];
+    const first = questionRow(page, firstId);
+    const firstOption = Object.keys(expected[firstId]!.criteria!)[0]!;
+    await first.getByTestId("option-description").nth(0).fill("Edited first-card description.");
+    expected[firstId]!.criteria![firstOption] = "Edited first-card description.";
+
+    const second = questionRow(page, secondId);
+    await second.getByTestId("question-instructions").fill("Edited second-card instructions.");
+    expected[secondId]!.instructions = "Edited second-card instructions.";
+    if (expected[secondId]!.type === "noul") {
+      await second.getByTestId("noul-true").fill("Edited true meaning.");
+      expected[secondId]!.criteria!.true = "Edited true meaning.";
+    } else {
+      const secondOption = Object.keys(expected[secondId]!.criteria!)[0]!;
+      await second.getByTestId("option-description").nth(0).fill("Edited second-card description.");
+      expected[secondId]!.criteria![secondOption] = "Edited second-card description.";
+    }
+
+    await page.waitForTimeout(200);
+    expect(evaluate.requests, "editing must not evaluate").toHaveLength(0);
+
+    // One submit, one request, exactly what is on screen.
+    await submitButton(page, "live").click();
+    await expect(page.getByTestId("live-badge")).toBeVisible();
+    await page.waitForTimeout(200);
+    expect(evaluate.requests).toHaveLength(1);
+    expect(evaluate.requests[0]).toEqual({ scenarioId, state, questions: expected });
+
+    // The rendered answers are the answers to that snapshot, not stale.
+    await expect(page.getByTestId("stale-warning")).toHaveCount(0);
+    await expect(page.locator('[data-testid^="answer-"]')).toHaveCount(scenario.questionOrder.length);
+    for (const id of scenario.questionOrder) {
+      await expect(page.getByTestId(`answer-${id}`)).toBeVisible();
+    }
+    await page.getByTestId("view-json").click();
+    await expect(page.getByTestId("snapshot-json")).toContainText("Edited first-card description.");
+    await expect(page.getByTestId("snapshot-json")).toContainText(`Edited ${scenarioId} State`);
+  });
+}
+
+test("keyboard alone selects a scenario, switches views, edits and submits", async ({ page }) => {
+  const evaluate = await goLive(page);
+
+  // Scenario cards are real buttons: focus and activate with the keyboard.
+  await page.getByTestId("scenario-municipal").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("scenario-municipal")).toHaveAttribute("aria-current", "true");
+  await page.getByTestId("scenario-safety").focus();
+  await page.keyboard.press("Space");
+  await expect(page.getByTestId("scenario-safety")).toHaveAttribute("aria-current", "true");
+
+  // Form ↔ JSON with the keyboard.
+  await page.getByTestId("request-view-json").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("request-json-editor")).toBeVisible();
+  await page.getByTestId("request-view-form").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("state-editor")).toBeVisible();
+
+  // Edit a question card's id by typing, then submit from the keyboard.
+  const idInput = questionRow(page, "handling").getByTestId("question-id-input");
+  await idInput.focus();
+  await page.keyboard.press("End");
+  await page.keyboard.type("_path");
+  await expect(questionRow(page, "handling_path")).toBeVisible();
+  expect(evaluate.requests).toHaveLength(0);
+
+  await submitButton(page, "live").focus();
+  await expect(submitButton(page, "live")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("live-badge")).toBeVisible();
+  expect(evaluate.requests).toHaveLength(1);
+  expect(Object.keys(evaluate.requests[0]!.questions as object)).toContain("handling_path");
+});

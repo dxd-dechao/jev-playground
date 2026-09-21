@@ -458,16 +458,16 @@ export default function PlaygroundPage() {
   }, []);
 
   return (
-    <main className="mx-auto w-full max-w-[100rem] px-4 py-6 sm:px-6">
-      <header className="mb-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h1 className="text-xl font-semibold">Jev playground</h1>
-          <p className="text-xs text-[var(--color-ink-soft)]">
+    <main className="mx-auto w-full max-w-[100rem] px-4 py-8 sm:px-6">
+      <header className="mb-8 border-b-4 border-[var(--color-line)] pb-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+          <h1 className="text-3xl font-extrabold tracking-tight">Jev playground</h1>
+          <p className="border-2 border-[var(--color-line)] bg-[var(--color-panel)] px-2 py-1 text-xs font-semibold">
             Fixture mode is offline and needs no key. Live mode calls TypeSafe
             Jev once per submission, from the server.
           </p>
         </div>
-        <p className="mt-2 max-w-4xl text-sm text-[var(--color-ink-soft)]">
+        <p className="mt-3 max-w-4xl text-sm text-[var(--color-ink-soft)]">
           Pick a scenario, edit its State and questions, then either preview the
           fixed fixture response or evaluate the request with Jev. Fixture
           answers were written by hand for the default questions to illustrate
@@ -477,7 +477,7 @@ export default function PlaygroundPage() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,17rem)_minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,17rem)_minmax(0,1.15fr)_minmax(0,1fr)] lg:gap-8">
         <div className="min-w-0">
           <ScenarioPicker
             scenarios={SCENARIOS}

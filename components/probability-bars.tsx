@@ -23,10 +23,10 @@ function Bar({ value, emphasis }: { value: number; emphasis: boolean }) {
   return (
     <span
       aria-hidden="true"
-      className="block h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-line)]"
+      className="block h-2 w-full overflow-hidden border border-[var(--color-line)] bg-[var(--color-line-soft)]"
     >
       <span
-        className={`block h-full rounded-full ${
+        className={`block h-full ${
           emphasis ? "bg-[var(--color-accent)]" : "bg-[var(--color-ink-soft)]/45"
         }`}
         style={{ width: `${width}%` }}

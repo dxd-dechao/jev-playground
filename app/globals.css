@@ -1,21 +1,33 @@
 @import "tailwindcss";
 
 /*
- * One light theme only — theme switching is out of scope for JEV-01.
+ * One light theme only — theme switching is out of scope.
  * Tokens are defined here so the three panels stay visually consistent.
+ *
+ * JEV-07 visual language: a cream canvas, strong dark borders, hard offset
+ * shadows, yellow for "selected" and section headings, white editing surfaces.
+ * `--color-line` is the strong border; `--color-line-soft` is for quiet
+ * dividers and tracks that must not compete with it.
  */
 @theme {
-  --color-canvas: oklch(98.4% 0.003 250);
+  --color-canvas: oklch(98.2% 0.014 92);
   --color-panel: oklch(100% 0 0);
-  --color-line: oklch(91% 0.006 250);
-  --color-ink: oklch(24% 0.02 260);
-  --color-ink-soft: oklch(48% 0.015 260);
-  --color-accent: oklch(52% 0.16 262);
-  --color-accent-soft: oklch(96% 0.02 262);
-  --color-warn: oklch(58% 0.14 62);
-  --color-warn-soft: oklch(96.5% 0.04 80);
-  --color-danger: oklch(52% 0.18 22);
+  --color-line: oklch(18% 0.01 260);
+  --color-line-soft: oklch(86% 0.015 92);
+  --color-ink: oklch(18% 0.01 260);
+  --color-ink-soft: oklch(42% 0.015 260);
+  --color-accent: oklch(46% 0.17 262);
+  --color-accent-soft: oklch(87% 0.13 92);
+  --color-highlight: oklch(87% 0.13 92);
+  --color-primary: oklch(80% 0.14 340);
+  --color-focus: oklch(50% 0.2 262);
+  --color-warn: oklch(55% 0.14 62);
+  --color-warn-soft: oklch(96% 0.045 85);
+  --color-danger: oklch(50% 0.19 25);
   --color-danger-soft: oklch(96% 0.03 25);
+  --color-type-choice: oklch(86% 0.08 215);
+  --color-type-score: oklch(85% 0.13 145);
+  --color-type-noul: oklch(85% 0.09 300);
 }
 
 html {
@@ -24,15 +36,19 @@ html {
 
 body {
   background-color: var(--color-canvas);
+  background-image: radial-gradient(var(--color-line-soft) 1px, transparent 1px);
+  background-size: 22px 22px;
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }
 
-/* A single visible focus treatment for every interactive control. */
-:where(a, button, input, textarea, select, [tabindex]):focus-visible {
-  outline: 2px solid var(--color-accent);
+/*
+ * A single visible focus treatment for every interactive control: a blue ring
+ * that reads on cream, white, yellow, and pink surfaces alike.
+ */
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--color-focus);
   outline-offset: 2px;
-  border-radius: 0.375rem;
 }
 
 /* Long JSON must wrap rather than force the page to scroll sideways. */
@@ -40,4 +56,160 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+@layer components {
+  /* The yellow tag that heads each of the three columns. */
+  .tag-heading {
+    display: inline-block;
+    border: 2px solid var(--color-line);
+    background: var(--color-highlight);
+    box-shadow: 4px 4px 0 var(--color-line);
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+  }
+
+  /* A white surface with a strong border and a hard offset shadow. */
+  .hard-card {
+    border: 2px solid var(--color-line);
+    background: var(--color-panel);
+    box-shadow: 5px 5px 0 var(--color-line);
+  }
+
+  /* Small uppercase labels inside cards. */
+  .field-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-ink);
+  }
+
+  /* Ordinary buttons: outlined, with a small hard shadow that presses in. */
+  .btn {
+    display: inline-flex;
+    min-height: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border: 2px solid var(--color-line);
+    background: var(--color-panel);
+    box-shadow: 2px 2px 0 var(--color-line);
+    padding: 0.25rem 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--color-ink);
+    transition:
+      transform 80ms ease,
+      box-shadow 80ms ease;
+  }
+  .btn:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 3px 3px 0 var(--color-line);
+  }
+  .btn:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+  }
+  .btn[aria-pressed="true"] {
+    background: var(--color-highlight);
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    border-style: dashed;
+    box-shadow: none;
+    color: var(--color-ink-soft);
+    background: var(--color-canvas);
+  }
+
+  /* Reset and removal: the same shape, marked in red so it never reads as a sample. */
+  .btn-danger {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+    box-shadow: 2px 2px 0 var(--color-danger);
+  }
+  .btn-danger:hover:not(:disabled) {
+    box-shadow: 3px 3px 0 var(--color-danger);
+  }
+
+  /* The one primary submission button. */
+  .btn-primary {
+    display: inline-flex;
+    min-height: 3rem;
+    align-items: center;
+    gap: 0.5rem;
+    border: 2px solid var(--color-line);
+    background: var(--color-primary);
+    box-shadow: 5px 5px 0 var(--color-line);
+    padding: 0.5rem 1.25rem;
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--color-ink);
+    transition:
+      transform 80ms ease,
+      box-shadow 80ms ease;
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 6px 6px 0 var(--color-line);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translate(4px, 4px);
+    box-shadow: 1px 1px 0 var(--color-line);
+  }
+  .btn-primary:disabled {
+    cursor: not-allowed;
+    border-style: dashed;
+    background: var(--color-canvas);
+    box-shadow: none;
+    color: var(--color-ink-soft);
+  }
+  .btn-primary[aria-busy="true"] {
+    background: var(--color-highlight);
+  }
+
+  /* Text inputs, text areas and selects on white. */
+  .input {
+    width: 100%;
+    border: 2px solid var(--color-line);
+    background: var(--color-panel);
+    color: var(--color-ink);
+  }
+  .input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+    background: var(--color-danger-soft);
+  }
+
+  /* A compact outlined pill, e.g. a scenario's question types. */
+  .badge {
+    display: inline-block;
+    border: 2px solid var(--color-line);
+    background: var(--color-panel);
+    padding: 0.05rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  /* A disclosure whose marker is our own, so it reads the same everywhere. */
+  .disclosure > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  .disclosure > summary::before {
+    content: "+";
+    display: inline-block;
+    width: 1rem;
+    font-weight: 800;
+  }
+  .disclosure[open] > summary::before {
+    content: "−";
+  }
 }
