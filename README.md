@@ -383,7 +383,12 @@ Both require an explicit numeric `--max-calls` **and** a deliberate `--confirm-l
 start when the requests would exceed the cap, and offer `--dry-run` to preview without reading
 the credential. There is no environment switch and no credential-driven fallback: a stored key
 changes nothing until someone types the flags. One case is one attempt — retries stay disabled.
-Results of the authorized run are in [`evaluation/JEV-06-RESULTS.md`](evaluation/JEV-06-RESULTS.md).
+
+**No live run has produced results.** The authorized attempt was refused by the executor's
+local egress proxy before reaching the provider, so zero provider calls were delivered and
+every live measurement is *unavailable — not measured*. The blocker, the offline verification,
+and what is needed to resume are recorded in
+[`evaluation/JEV-06-RESULTS.md`](evaluation/JEV-06-RESULTS.md).
 
 What remains unverified: **any operational agency assignment policy, and school safety
 effectiveness**. Held-out cases are synthetic and are not independent real-world validation.

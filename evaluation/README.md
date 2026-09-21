@@ -1,12 +1,14 @@
-# Offline evaluation (JEV-04 municipal, JEV-05 student safety)
+# Evaluation (JEV-04 municipal, JEV-05 student safety, JEV-06 live path)
 
-Offline, reproducible tooling to prepare label-free requests, run them through an
+Reproducible tooling to prepare label-free requests, run them through an
 **injected** evaluator, and score the predictions against labelled synthetic cases.
 
-**Nothing here calls a model.** No command creates a TypeSafe client, reads an API
-credential, or touches the network. The only evaluator shipped is a deterministic
-mock whose reports are stamped **MOCK DATA — NOT MODEL PERFORMANCE**. Running real
-predictions (with a budget and approval) is JEV-06.
+**Offline by default.** `prepare`, `mock-run`, `score`, and `preflight` create no
+TypeSafe client, read no credential, and touch no network; the mock evaluator's
+reports are stamped **MOCK DATA — NOT MODEL PERFORMANCE**. Two commands added by
+JEV-06 do call TypeSafe for real, and only when explicitly invoked with a call cap
+and a confirmation flag — see [The live path](#the-live-path-jev-06). No live run
+has produced results yet; see [`JEV-06-RESULTS.md`](JEV-06-RESULTS.md).
 
 What remains unverified: real provider performance, any operational agency
 assignment policy, and school safety effectiveness. Held-out cases are synthetic
@@ -17,7 +19,9 @@ and held out from tuning only; they are not independent real-world validation.
 | Path | Owner | Contents |
 | --- | --- | --- |
 | `evaluation/shared/` | lead | Contract types, validation, hashing, split, request builders, runner, prediction IO, report helpers, mock evaluator |
-| `evaluation/cli.ts`, `evaluation/main.ts` | lead | `prepare`, `mock-run`, `score` commands |
+| `evaluation/cli.ts`, `evaluation/main.ts` | lead | `prepare`, `mock-run`, `score`, `preflight` commands, plus the two live handlers |
+| `evaluation/live.ts`, `evaluation/smoke.ts` | lead (JEV-06) | **The only paid path.** Live evaluator with its spending guards, and the 12-sample smoke check. Loaded by dynamic import from the live handlers only |
+| `evaluation/JEV-06-RESULTS.md` | lead (JEV-06) | What the authorized live run did and did not establish |
 | `evaluation/municipal/` | municipal worker (JEV-04) | Source snapshot, adapter, split manifest, disposition review sheet, scorer, `index.ts` |
 | `evaluation/safety/` | safety worker (JEV-05) | Synthetic cases, split manifest, review template, scorer, `index.ts` |
 | `evaluation-output/` | generated, gitignored | Prepared requests, predictions, reports |
@@ -28,6 +32,15 @@ and held out from tuning only; they are not independent real-world validation.
 npm run eval:prepare  -- --suite municipal|safety --split development|heldout --out <dir>
 npm run eval:mock-run -- --prepared <dir> --out <dir> [--error-policy continue|stop]
 npm run eval:score    -- --suite municipal|safety --manifest <file> --predictions <file> --out <dir>
+npm run eval:preflight -- --out <dir>
+```
+
+Two further commands **spend money** and require `--max-calls <n>` together with
+`--confirm-live`; `--dry-run` previews either one for free:
+
+```bash
+npm run eval:smoke -- --out <dir> --max-calls 12 --confirm-live
+npm run eval:live  -- --prepared <dir> --out <dir> --max-calls <n> [--model <id>] --confirm-live
 ```
 
 The scripts run TypeScript through `vite-node`, which is already installed as part
@@ -265,6 +278,12 @@ free and calls nothing.
 run avoids mixing models mid-benchmark. It is only legitimate because the
 TypeSafe model reference states that versioned identifiers are accepted by the
 `model` field; the smoke stage establishes which one to pin.
+
+**No live run has produced results yet.** The authorized attempt was refused by
+the executor's local egress proxy before it reached the provider: zero provider
+calls were delivered, so every live measurement is *unavailable — not measured*.
+See [`JEV-06-RESULTS.md`](JEV-06-RESULTS.md) for the blocker, the offline
+verification that did pass, and what is needed to resume.
 
 What remains unverified: labels are still proposed or inherited, never reviewed,
 so every accuracy-style number stays **diagnostic** and reviewed metrics are
