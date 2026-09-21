@@ -77,15 +77,18 @@ written into an error message or log line.
 
 ### "Configured" is not "verified"
 
-`GET /api/config` returns `{ "configured": true | false, "access": "open" | "required" | "granted" }`.
+`GET /api/config` returns
+`{ "configured": true | false, "llmConfigured": true | false, "access": "open" | "required" | "granted" }`.
 `configured: true` means a non-empty `TYPESAFE_API_KEY` is present in the server's
 environment — **not** that it is valid, funded, accepted, or within quota. Nothing
 but a real call can establish that, and this check deliberately does not make one.
-`access` is independent: `open` when no playground password is set (the local
-default), `required` when a password is set and this browser has no valid session
-cookie, `granted` when the cookie is valid. The field never includes the password,
-a hash, a cookie value, or key material. Mocked tests that omit `access` are
-treated as `open`.
+`llmConfigured: true` means a non-empty `MOONSHOT_API_KEY` is present, with the
+same caveat; a mocked `{ configured: true }` that omits `llmConfigured` is treated
+as the language-model path not being configured. `access` is independent: `open`
+when no playground password is set (the local default), `required` when a password
+is set and this browser has no valid session cookie, `granted` when the cookie is
+valid. The field never includes the password, a hash, a cookie value, a key, or a
+model name. Mocked tests that omit `access` are treated as `open`.
 
 So a configured server can still fail on the first evaluation with an authentication
 or rate-limit error; that is expected, not a bug. A hosted server with
@@ -146,6 +149,20 @@ own request snapshot, labelled stale if the State or questions have since change
 Error messages and server logs carry the code and guidance only — never the key, never the
 raw upstream error, never the submitted student message.
 
+## Language-model evaluation (not on the page)
+
+The page still has one action, **Evaluate with Jev**. `POST /api/evaluate-llm` exists
+on the server and is **not** called by the page. It accepts the same body as
+`POST /api/evaluate` — `{ scenarioId, state, questions }` — and the same
+`jev_access` cookie when the playground password is set. One request spends one
+Moonshot chat-completions call (default model `kimi-k2.6` with thinking disabled)
+and returns the same typed answers envelope plus the measured call duration and
+the token counts the response actually carried. **Cost** stays unavailable: Moonshot
+does not report a cost field here, and nothing is estimated.
+
+Unset `MOONSHOT_API_KEY` is valid. That route then returns 503 `not_configured`,
+and Evaluate with Jev is unaffected.
+
 ## Checks
 
 ```bash
@@ -165,13 +182,14 @@ live commands (`eval:smoke`, `eval:live`) spend money and are never part of a ch
   key, so the request is fully assembled but never leaves the process.
 - The route tests mock the adapter and assert it was **not** called on every rejection path.
 - The browser tests fulfil `/api/config` and `/api/evaluate` with `page.route`, and
-  `playwright.config.ts` starts the server under test with the TypeSafe variables blanked, so
-  an unmocked request could only produce a 503.
+  `playwright.config.ts` starts the server under test with the TypeSafe, playground-password,
+  and Moonshot variables blanked, so an unmocked request could only produce a 503.
 - One test greps the emitted client bundle in `.next/static` for the fake key, for
-  `TYPESAFE_API_KEY`, for `api.typesafe.ai`, for the SDK itself, and for
-  `process.env.PLAYGROUND` / playground password values, confirming that key,
-  session secret, and transport stay on the server. Run `npm run build` before
-  `npm run test` for it to execute.
+  `TYPESAFE_API_KEY`, for `api.typesafe.ai`, for the SDK itself, for
+  `process.env.PLAYGROUND` / playground password values, and for `MOONSHOT_API_KEY`,
+  `api.moonshot.ai`, `api.moonshot.cn`, and the synthetic Moonshot test key,
+  confirming that keys, session secret, and both transports stay on the server. Run
+  `npm run build` before `npm run test` for it to execute.
 - The live-path tests drive the same guards with fake evaluators and a fake `fetch`, and assert
   the network was never touched. One test asserts that `evaluation/live.ts` is the only module
   under `evaluation/` that imports the SDK or the transport, and that nothing imports it
@@ -209,8 +227,8 @@ npx playwright install chromium
 The suite starts its own production server on `127.0.0.1:3100`, so run `npm run build`
 first. It also writes layout evidence to `screenshots/` (gitignored): full-page
 screenshots per viewport project, including the request editor's Form, invalid-JSON, and
-custom-question views. Playwright starts that server with TypeSafe and playground-password
-variables blanked, so an unmocked Evaluate can only 503.
+custom-question views. Playwright starts that server with TypeSafe, playground-password,
+and Moonshot variables blanked, so an unmocked Evaluate can only 503.
 
 ## Deploying to Railway
 
@@ -224,11 +242,12 @@ put real secrets in the repo.
   the process.
 - **Healthcheck:** `GET /`.
 
-Set these variables on the service. Mark the two secrets as sensitive:
+Set these variables on the service. Mark secrets as sensitive:
 
 | Variable | Required | Role |
 | --- | --- | --- |
-| `TYPESAFE_API_KEY` | To Evaluate | TypeSafe key. Visitors never type this. |
+| `TYPESAFE_API_KEY` | To Evaluate with Jev | TypeSafe key. Visitors never type this. |
+| `MOONSHOT_API_KEY` | Optional | Moonshot key for `POST /api/evaluate-llm` only. Unset is valid; that route then returns 503. The page does not call it. |
 | `PLAYGROUND_PASSWORD` | To gate Evaluate | Shared password people type. Blank/unset = gate off. Both sides are trimmed once. |
 | `PLAYGROUND_SESSION_SECRET` | When the password is set | Long random HMAC key for the `jev_access` cookie. Do not derive it from the password. |
 
@@ -456,12 +475,14 @@ date recorded in the file header. It contains intentional overlap between agenci
 
 ```
 app/                    App Router shell, global tokens, client page holding all state
-app/api/config/         GET { configured, access } — key presence + password-gate state
-app/api/unlock/         POST { password } — HttpOnly session cookie; never calls TypeSafe
-app/api/evaluate/       POST { scenarioId, state, questions } — the only route that can spend money
+app/api/config/         GET { configured, llmConfigured, access } — key presence + password-gate state
+app/api/unlock/         POST { password } — HttpOnly session cookie; never calls a provider
+app/api/evaluate/       POST { scenarioId, state, questions } — the only TypeSafe call
+app/api/evaluate-llm/   POST { scenarioId, state, questions } — one Moonshot call; not used by the page
 components/             scenario-picker, request-editor, question-editor, response-panel,
                         probability-bars
 lib/evaluation.ts       server-only SDK adapter: lazy client, no retries, 30 s abort
+lib/llm-evaluation.ts   server-only Moonshot adapter: fetch, no retries, 30 s abort
 lib/evaluation-response.ts  runtime check of a response against the submitted questions
 lib/playground-gate.ts  server-only password compare, signed cookie, unlock rate limit
 lib/request-draft.ts    editable drafts: Form rows, State Text/JSON rule, raw JSON parsing
@@ -471,13 +492,15 @@ evaluation/             evaluation tooling: shared contract, CLI, municipal and 
                         suites. Offline by default; live.ts and smoke.ts are the
                         only paid path and are opt-in (see evaluation/README.md)
 tests/                  decisions, request-validation, request-draft, evaluation,
-                        evaluation-route, playground-gate, evaluation-shared, evaluation-cli,
+                        evaluation-route, llm-evaluation, playground-gate, evaluation-shared, evaluation-cli,
                         municipal-evaluation, safety-evaluation (vitest); playground.spec.ts,
                         live-playground.spec.ts, request-editor.spec.ts (Playwright)
 ```
 
-`lib/evaluation.ts` is the only module that touches the key or the SDK, and it refuses to
-load in a browser. Nothing above it in the import graph is a client component.
+`lib/evaluation.ts` is the only module that touches the TypeSafe key or the SDK, and it
+refuses to load in a browser. `lib/llm-evaluation.ts` is the only module that reads
+`MOONSHOT_API_KEY` or calls Moonshot; it also refuses to load in a browser. Nothing
+above either in the import graph is a client component. The page does not import them.
 
 Bars are `aria-hidden`; every percentage is also present as text, so nothing is conveyed by
 colour or width alone.

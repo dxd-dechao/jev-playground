@@ -198,12 +198,13 @@ export interface EvaluationErrorPayload {
 export type PlaygroundAccess = "open" | "required" | "granted";
 
 /**
- * `GET /api/config`. `configured` means a key is present, nothing more.
- * `access` is the playground password gate, never a password, hash, cookie, or
- * key material.
+ * `GET /api/config`. `configured` means a TypeSafe key is present, nothing more.
+ * `llmConfigured` means a Moonshot key is present, nothing more. `access` is the
+ * playground password gate, never a password, hash, cookie, key, or model name.
  */
 export interface ConfigPayload {
   configured: boolean;
+  llmConfigured: boolean;
   access: PlaygroundAccess;
 }
 
@@ -213,6 +214,15 @@ export function playgroundAccessFromConfig(payload: unknown): PlaygroundAccess {
   const access = (payload as { access?: unknown }).access;
   if (access === "required" || access === "granted" || access === "open") return access;
   return "open";
+}
+
+/**
+ * Missing or non-boolean `llmConfigured` is treated as false so a mocked
+ * `{ configured: true }` still means the language-model path is not configured.
+ */
+export function llmConfiguredFromConfig(payload: unknown): boolean {
+  if (typeof payload !== "object" || payload === null) return false;
+  return (payload as { llmConfigured?: unknown }).llmConfigured === true;
 }
 
 /**
