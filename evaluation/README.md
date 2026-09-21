@@ -7,12 +7,15 @@ Reproducible tooling to prepare label-free requests, run them through an
 TypeSafe client, read no credential, and touch no network; the mock evaluator's
 reports are stamped **MOCK DATA — NOT MODEL PERFORMANCE**. Two commands added by
 JEV-06 do call TypeSafe for real, and only when explicitly invoked with a call cap
-and a confirmation flag — see [The live path](#the-live-path-jev-06). No live run
-has produced results yet; see [`JEV-06-RESULTS.md`](JEV-06-RESULTS.md).
+and a confirmation flag — see [The live path](#the-live-path-jev-06). One
+authorized live pass has been run: 214 calls, all on `jev-1.13.0`, results in
+[`JEV-06-RESULTS.md`](JEV-06-RESULTS.md).
 
-What remains unverified: real provider performance, any operational agency
-assignment policy, and school safety effectiveness. Held-out cases are synthetic
-and held out from tuning only; they are not independent real-world validation.
+What remains unverified: labels are still proposed or inherited, never reviewed,
+so every agreement figure is **diagnostic** and reviewed metrics are
+**unavailable**; and no operational agency assignment policy or school safety
+effectiveness claim follows from any of it. Held-out cases are synthetic and held
+out from tuning only; they are not independent real-world validation.
 
 ## Layout
 
@@ -21,7 +24,7 @@ and held out from tuning only; they are not independent real-world validation.
 | `evaluation/shared/` | lead | Contract types, validation, hashing, split, request builders, runner, prediction IO, report helpers, mock evaluator |
 | `evaluation/cli.ts`, `evaluation/main.ts` | lead | `prepare`, `mock-run`, `score`, `preflight` commands, plus the two live handlers |
 | `evaluation/live.ts`, `evaluation/smoke.ts` | lead (JEV-06) | **The only paid path.** Live evaluator with its spending guards, and the 12-sample smoke check. Loaded by dynamic import from the live handlers only |
-| `evaluation/JEV-06-RESULTS.md` | lead (JEV-06) | What the authorized live run did and did not establish |
+| `evaluation/JEV-06-RESULTS.md` | lead (JEV-06) | The authorized live run's measurements, and what they do and do not establish |
 | `evaluation/municipal/` | municipal worker (JEV-04) | Source snapshot, adapter, split manifest, disposition review sheet, scorer, `index.ts` |
 | `evaluation/safety/` | safety worker (JEV-05) | Synthetic cases, split manifest, review template, scorer, `index.ts` |
 | `evaluation-output/` | generated, gitignored | Prepared requests, predictions, reports |
@@ -279,11 +282,20 @@ run avoids mixing models mid-benchmark. It is only legitimate because the
 TypeSafe model reference states that versioned identifiers are accepted by the
 `model` field; the smoke stage establishes which one to pin.
 
-**No live run has produced results yet.** The authorized attempt was refused by
-the executor's local egress proxy before it reached the provider: zero provider
-calls were delivered, so every live measurement is *unavailable — not measured*.
-See [`JEV-06-RESULTS.md`](JEV-06-RESULTS.md) for the blocker, the offline
-verification that did pass, and what is needed to resume.
+### The one authorized run
+
+214 calls were delivered: 12 smoke samples, then one k=1 pass over all four
+splits (97 + 53 + 44 + 8). All 214 succeeded and all resolved to `jev-1.13.0`.
+Scoring the saved predictions is free and reproduces byte-identically.
+
+Two earlier smoke dispatches never reached the provider: Node's `fetch` ignored
+the sandbox's proxy environment and failed at DNS, which the adapter correctly
+sanitized to `upstream_unavailable`. Setting `NODE_USE_ENV_PROXY=1` for the run
+command fixed it with no code change. Both failed artifacts are preserved, and
+neither is counted against the call ceiling because neither was delivered or
+billable.
+
+See [`JEV-06-RESULTS.md`](JEV-06-RESULTS.md) for the measurements.
 
 What remains unverified: labels are still proposed or inherited, never reviewed,
 so every accuracy-style number stays **diagnostic** and reviewed metrics are
