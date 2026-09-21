@@ -1,0 +1,56 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts.bak
+
+# production
+/build
+
+# typescript
+*.tsbuildinfo
+
+# test output / evidence
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/screenshots/
+
+# test source and runner config (local-only)
+/tests/
+/playwright.config.ts
+/vitest.config.ts
+
+# offline evaluation CLI, datasets, and scorers (not part of the app)
+/evaluation/
+
+# handoff protocol, agent control files, and local task archives
+HANDOFF.md
+HANDOFF-ARCHIVE.md
+.handoff-logs/
+.handoff-config.json
+.claude/
+/archive/
+
+# local env files — every one of them, including any variant added later. A
+# TypeSafe API key belongs in macOS Keychain; any compatibility env file stays
+# untracked on the machine using it.
+.env
+.env.*
+# ...except the checked-in template, which holds variable names and placeholders
+# and never a real value.
+!.env.example
+
+# macOS
+.DS_Store
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# offline evaluation output (reports, predictions, prepared requests)
+/evaluation-output/
