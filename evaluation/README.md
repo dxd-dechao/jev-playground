@@ -124,3 +124,85 @@ Scorers must: give explicit numerators, denominators, and excluded counts;
 report zero denominators as unavailable; show the mock banner for mock runs
 (`reportHeader` does this); keep proposed-label agreement diagnostic and separate
 from reviewed-label metrics; and use one prediction per case.
+
+## Files needed to reproduce (no API key)
+
+Checked-in inputs. Nothing under `evaluation-output/` is required.
+
+**Shared:** `evaluation/shared/**`, `evaluation/cli.ts`, `evaluation/main.ts`,
+the unchanged presets in `lib/scenarios.ts`, `lib/agency-definitions.ts`,
+`lib/municipal-routing.ts`, `lib/safety-guardrails.ts`, `lib/evaluation-response.ts`.
+
+**Municipal (JEV-04):**
+
+| File | Role |
+| --- | --- |
+| `evaluation/municipal/source/test_cases.json` | Byte-for-byte snapshot of 150 synthetic interview cases. SHA-256 `29b5c51ef2bb8a0e25823f96253f0d3e35e8dede302befa48c30536751d2d43c` |
+| `evaluation/municipal/source/provenance.json` | Snapshot hash, original path, what was copied vs left unused |
+| `evaluation/municipal/groups.ts` | Near-duplicate groups, forced playground variants, split seed |
+| `evaluation/municipal/split-manifest.json` | Committed split (97 development / 53 held-out). Scoring never regenerates it |
+| `evaluation/municipal/disposition-labels.json` | Proposed dispositions (150 proposed, 0 reviewed) |
+| `evaluation/municipal/disposition-review.md` | How a human records a review |
+| `evaluation/municipal/dataset.ts`, `score.ts`, `index.ts` | Adapter, scorer, `suite` export |
+
+Inherited `primary_agency` / `acceptable_agencies` stay `inherited_reference`.
+They are single-source synthetic references, not reviewed operational ground truth.
+
+**Safety (JEV-05):**
+
+| File | Role |
+| --- | --- |
+| `evaluation/safety/cases.json` | 52 synthetic inputs in 26 contrast groups. SHA-256 `43ea1d3b57db6892b952424cab7557008f145f3141baf08f3123543face3d0c2` |
+| `evaluation/safety/labels.json` | Proposed `self_harm_context` / `handling` / `category` (156 proposed, 0 reviewed) |
+| `evaluation/safety/provenance.json` | Authorship, review status, cases hash |
+| `evaluation/safety/split-config.ts` | Seed, visible-sample groups forced to development |
+| `evaluation/safety/split-manifest.json` | Committed split (44 development / 8 held-out) |
+| `evaluation/safety/review-template.md` | How a human records a review |
+| `evaluation/safety/dataset.ts`, `score.ts`, `index.ts`, `types.ts` | Loader, scorer, `suite` export |
+
+All authored safety labels are `proposed`. Held-out cases are synthetic hold-outs
+from tuning, not independent real-world validation.
+
+## Annotation procedure
+
+An agent may propose a label; it may not mark that proposal `reviewed`.
+
+1. Read the suite's review template (`disposition-review.md` or `review-template.md`).
+2. For each field, either agree with the proposal or write a new value.
+3. Set `provenance: "reviewed"` and `review: { reviewer, reviewedOn: "YYYY-MM-DD" }`
+   on that field only. A changed value may keep the original in `proposedValue`
+   (municipal) or in the rationale (safety).
+4. Do not invent a reviewer name. Do not copy unit-test `test-reviewed-*`
+   fixtures into the dataset.
+
+Until that happens, reviewed-label metrics are **unavailable** (zero denominator),
+never 0% or 100%. Proposed-label agreement in a report is diagnostic only.
+
+## Mock-only end-to-end example
+
+No TypeSafe client, no credential, no network. Repeatable; only `preparedAt`
+is allowed to change between prepares.
+
+```bash
+npm run eval:prepare  -- --suite municipal --split development --out evaluation-output/m-dev
+npm run eval:mock-run -- --prepared evaluation-output/m-dev --out evaluation-output/m-run
+npm run eval:score    -- --suite municipal --manifest evaluation-output/m-run/run-manifest.json \
+                         --predictions evaluation-output/m-run/predictions.jsonl --out evaluation-output/m-report
+
+npm run eval:prepare  -- --suite safety --split development --out evaluation-output/s-dev
+npm run eval:mock-run -- --prepared evaluation-output/s-dev --out evaluation-output/s-run
+npm run eval:score    -- --suite safety --manifest evaluation-output/s-run/run-manifest.json \
+                         --predictions evaluation-output/s-run/predictions.jsonl --out evaluation-output/s-report
+```
+
+Reports are stamped **MOCK DATA — NOT MODEL PERFORMANCE**. They verify that
+preparation, scoring, and arithmetic work. They are not model performance.
+Production-like scoring consumes one prediction per case; do not cherry-pick
+repeated attempts or use a judge model.
+
+## JEV-06 (not this task)
+
+A live evaluator that calls TypeSafe Jev is a separate deliverable with its own
+budget and approval. This tree has no live switch and no credential-driven
+fallback. Real provider performance, operational agency policy, and school
+safety effectiveness remain unverified.

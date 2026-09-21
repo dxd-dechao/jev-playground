@@ -26,9 +26,12 @@ Fixture mode needs no key and never will. Live mode needs one; see
   correctly. One response is one response.
 - **Not** a moderation or escalation system. The safety scenario does not contact anyone,
   log anything, or take action on a student. Nothing is dispatched to any agency.
-- **Not** a benchmark runner. There is no dataset sweep, no accuracy metric, and no run
-  history. Live results show what a single call measured; fixture results show *Unavailable*
-  for every measurement field, because nothing was measured.
+- **Not** a benchmark runner in the browser. The playground has no dataset sweep, no accuracy
+  metric, and no run history. Live results show what a single call measured; fixture results
+  show *Unavailable* for every measurement field, because nothing was measured. Offline
+  evaluation tooling lives separately under `evaluation/` (see
+  [Offline evaluation](#offline-evaluation-jev-0405)) and has so far produced **no real model
+  results**.
 - **Not** a cost report. The API documents no cost field, so **Cost** always reads
   *Unavailable* rather than an estimate dressed up as a measurement.
 
@@ -136,6 +139,9 @@ npm run test        # vitest: composition, fixtures, validation, adapter, route
 npm run build       # production build; succeeds with no API key present
 npm run test:e2e    # Playwright, desktop 1440px and mobile 390px
 ```
+
+The offline evaluation commands (`eval:prepare`, `eval:mock-run`, `eval:score`) are
+described in [Offline evaluation](#offline-evaluation-jev-0405); they need no key either.
 
 **No automated check makes a real provider call**, even on a machine with a key configured:
 
@@ -336,6 +342,37 @@ thresholded into a boolean and never overrides the Choice answers.
 Raw agency accuracy and the application's decision to defer or suppress are kept distinct,
 so abstention cannot hide an error.
 
+## Offline evaluation (JEV-04/05)
+
+`evaluation/` holds offline, reproducible tooling for two synthetic suites that reuse the
+presets' questions and composition code unchanged:
+
+- **Municipal** (JEV-04): a byte-for-byte snapshot of the 150-case synthetic interview test
+  set, with its inherited agency labels kept as single-source `inherited_reference` labels
+  and a separate, unreviewed disposition annotation sheet.
+- **Student safety** (JEV-05): newly authored synthetic contrast cases whose labels are all
+  `proposed` until a named human reviewer records a review.
+
+```bash
+npm run eval:prepare  -- --suite municipal --split development --out evaluation-output/m-dev
+npm run eval:mock-run -- --prepared evaluation-output/m-dev --out evaluation-output/m-run
+npm run eval:score    -- --suite municipal --manifest evaluation-output/m-run/run-manifest.json \
+                         --predictions evaluation-output/m-run/predictions.jsonl --out evaluation-output/m-report
+```
+
+`prepare` writes label-free requests; `mock-run` answers them with a deterministic mock;
+`score` validates provenance and writes JSON and Markdown metrics. **None of these commands
+calls a model, reads an API key, or uses the network**, and there is no live switch. Mock
+reports are stamped **MOCK DATA — NOT MODEL PERFORMANCE**. `evaluation-output/` is
+gitignored.
+
+What remains unverified: **real provider performance, any operational agency assignment
+policy, and school safety effectiveness**. Held-out cases are synthetic and are not
+independent real-world validation. Reviewed-label metrics stay *unavailable* until a human
+reviews labels. Running real predictions is a separate task (JEV-06) with its own budget and
+approval. See [`evaluation/README.md`](evaluation/README.md) for the contract, provenance
+labels, annotation procedure, and the files needed to reproduce a run.
+
 ## Agency taxonomy provenance
 
 `lib/agency-definitions.ts` holds a **prototype** Singapore agency taxonomy
@@ -356,8 +393,11 @@ lib/evaluation-response.ts  runtime check of a response against the submitted qu
 lib/request-draft.ts    editable drafts: Form rows, State Text/JSON rule, raw JSON parsing
 lib/                    types, schemas (Zod), scenarios + samples, fixtures,
                         safety-guardrails, municipal-routing, agency-definitions
+evaluation/             offline evaluation: shared contract, CLI, municipal and safety
+                        suites (no model calls; see evaluation/README.md)
 tests/                  decisions, request-validation, request-draft, evaluation,
-                        evaluation-route (vitest); playground.spec.ts,
+                        evaluation-route, evaluation-shared, evaluation-cli,
+                        municipal-evaluation, safety-evaluation (vitest); playground.spec.ts,
                         live-playground.spec.ts, request-editor.spec.ts (Playwright)
 ```
 
