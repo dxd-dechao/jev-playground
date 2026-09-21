@@ -24,17 +24,21 @@
  *  - The exported preset objects are never mutated. Drafts are rebuilt from
  *    them by value.
  *
- * STATE TEXT/JSON RULE (reversible)
- * ---------------------------------
- * A State draft keeps two buffers: the JSON source and the literal text.
- *  - JSON → Text: the Text buffer becomes the parsed string if the JSON is a
- *    string, and otherwise the JSON *source itself*, verbatim, as a literal
- *    string. The JSON buffer is kept untouched.
- *  - Text → JSON: if the text has not been edited since that switch, the kept
- *    JSON buffer is restored exactly, so a round trip changes nothing. If it
- *    has been edited, the edited text becomes a JSON string literal — it is
- *    never re-read as structure and nothing is dropped.
- * Content is never trimmed in either direction.
+ * STATE TEXT/JSON RULE (focused, reversible, never lossy)
+ * --------------------------------------------------------
+ * Text mode edits one string, and only where that string is unambiguous:
+ *  - a top-level string State: the text *is* the State;
+ *  - an object State whose scenario primary field (`student_message`,
+ *    `feedback`) is a string: the text is that field, and every other property
+ *    of the object is kept and sent exactly as it was.
+ * Any other State — invalid JSON, an array, a number, an object without that
+ * string field — stays in JSON. Text is refused rather than inventing a field
+ * or sending the JSON source as a string.
+ *
+ * While Text is shown the JSON buffer is kept untouched and is the base the
+ * text is applied to. Text → JSON restores that buffer exactly if the text was
+ * not edited, and otherwise writes the full State with the edited field in
+ * place. Content is never trimmed in either direction.
  */
 
 import { deepEqual } from "./fixtures";
@@ -471,26 +475,83 @@ export type StateMode = "json" | "text";
 
 export interface StateDraft {
   mode: StateMode;
-  /** The JSON source. Kept, untouched, while Text is shown. */
+  /** The JSON source. Kept, untouched, while Text is shown: the text's base. */
   json: string;
-  /** The literal text used in Text mode. */
+  /** The focused string edited in Text mode. */
   text: string;
   /**
    * The text produced by the last JSON → Text switch. While `text` still
    * equals it, switching back restores `json` exactly.
    */
   textBase: string | null;
+  /** The object field Text mode edits (the scenario's primary message), if any. */
+  primaryField: string | null;
 }
 
 export function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-export function stateDraftFromValue(value: State, preferText = false): StateDraft {
-  if (typeof value === "string" && preferText) {
-    return { mode: "text", json: formatJson(value), text: value, textBase: value };
+/** What Text mode would edit for a State value, or why it cannot. */
+export type StateTextFocus =
+  | { ok: true; kind: "string"; text: string }
+  | { ok: true; kind: "field"; field: string; text: string; base: Record<string, unknown> }
+  | { ok: false; reason: string };
+
+export function stateTextFocus(value: unknown, primaryField: string | null): StateTextFocus {
+  if (typeof value === "string") return { ok: true, kind: "string", text: value };
+  if (isPlainObject(value)) {
+    if (primaryField === null) {
+      return { ok: false, reason: "This State is an object, and Text can only edit a string." };
+    }
+    const field = value[primaryField];
+    if (typeof field === "string") {
+      return { ok: true, kind: "field", field: primaryField, text: field, base: value };
+    }
+    return {
+      ok: false,
+      reason:
+        field === undefined
+          ? `This State has no "${primaryField}" field, so there is no message to edit as Text.`
+          : `This State's "${primaryField}" is not a string, so it cannot be edited as Text.`,
+    };
   }
-  return { mode: "json", json: formatJson(value), text: "", textBase: null };
+  return {
+    ok: false,
+    reason: `Text edits a string State or an object's "${primaryField ?? "message"}" string; this State is neither.`,
+  };
+}
+
+/** Whether State → Text is possible now, and if not, why it is refused. */
+export function stateTextAvailability(
+  state: StateDraft,
+): { ok: true } | { ok: false; reason: string } {
+  if (state.mode === "text") return { ok: true };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(state.json) as unknown;
+  } catch {
+    return { ok: false, reason: "This State is not valid JSON; fix it before switching to Text." };
+  }
+  const focus = stateTextFocus(parsed, state.primaryField);
+  return focus.ok ? { ok: true } : { ok: false, reason: focus.reason };
+}
+
+/**
+ * A State draft for a value. With `preferText`, Text mode is used when the
+ * value has a focus (a string, or the primary field); otherwise JSON.
+ */
+export function stateDraftFromValue(
+  value: State,
+  primaryField: string | null = null,
+  preferText = false,
+): StateDraft {
+  const json = formatJson(value);
+  const focus = preferText ? stateTextFocus(value, primaryField) : null;
+  if (focus?.ok) {
+    return { mode: "text", json, text: focus.text, textBase: focus.text, primaryField };
+  }
+  return { mode: "json", json, text: "", textBase: null, primaryField };
 }
 
 export type StateRead =
@@ -498,15 +559,25 @@ export type StateRead =
   | { ok: false; error: string };
 
 export function readStateDraft(state: StateDraft): StateRead {
-  if (state.mode === "text") return { ok: true, value: state.text };
+  let parsed: unknown;
   try {
-    return { ok: true, value: JSON.parse(state.json) as unknown };
+    parsed = JSON.parse(state.json) as unknown;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+  if (state.mode === "json") return { ok: true, value: parsed };
+  // Text mode: the kept JSON is the base, and the text replaces only its focus.
+  const focus = stateTextFocus(parsed, state.primaryField);
+  if (!focus.ok) return { ok: false, error: focus.reason };
+  if (focus.kind === "string") return { ok: true, value: state.text };
+  return { ok: true, value: { ...focus.base, [focus.field]: state.text } };
 }
 
-/** Apply the reversible Text/JSON rule described at the top of this file. */
+/**
+ * Apply the focused Text/JSON rule described at the top of this file. A switch
+ * to Text that would lose or invent data is refused: the draft is returned
+ * unchanged and `stateTextAvailability` says why.
+ */
 export function toggleStateMode(state: StateDraft, mode: StateMode): StateDraft {
   if (state.mode === mode) return state;
   if (mode === "text") {
@@ -514,15 +585,18 @@ export function toggleStateMode(state: StateDraft, mode: StateMode): StateDraft 
     try {
       parsed = JSON.parse(state.json) as unknown;
     } catch {
-      parsed = undefined;
+      return state;
     }
-    const text = typeof parsed === "string" ? parsed : state.json;
-    return { mode: "text", json: state.json, text, textBase: text };
+    const focus = stateTextFocus(parsed, state.primaryField);
+    if (!focus.ok) return state;
+    return { ...state, mode: "text", text: focus.text, textBase: focus.text };
   }
   if (state.textBase !== null && state.text === state.textBase) {
-    return { mode: "json", json: state.json, text: state.text, textBase: state.textBase };
+    return { ...state, mode: "json" };
   }
-  return { mode: "json", json: JSON.stringify(state.text), text: state.text, textBase: null };
+  const read = readStateDraft(state);
+  if (!read.ok) return { ...state, mode: "json", textBase: null };
+  return { ...state, mode: "json", json: formatJson(read.value), textBase: null };
 }
 
 /** Replace whichever buffer the current mode edits. */
@@ -553,7 +627,7 @@ export interface RequestDraft {
 export function initialDraft(scenario: Scenario): RequestDraft {
   return {
     view: "form",
-    state: stateDraftFromValue(getDefaultSample(scenario).state),
+    state: stateDraftFromValue(getDefaultSample(scenario).state, scenario.primaryTextField),
     rows: rowsFromPreset(scenario),
     requestJson: null,
   };
@@ -679,7 +753,11 @@ function materializeJson(draft: RequestDraft, reading: RequestJsonReading): Requ
   const state =
     form.request !== null && deepEqual(form.request.state, reading.request.state)
       ? draft.state
-      : stateDraftFromValue(reading.request.state, draft.state.mode === "text");
+      : stateDraftFromValue(
+          reading.request.state,
+          draft.state.primaryField,
+          draft.state.mode === "text",
+        );
   const rows =
     form.request !== null && deepEqual(form.request.questions, reading.request.questions)
       ? draft.rows
@@ -716,9 +794,15 @@ export function setRequestJson(draft: RequestDraft, text: string): RequestDraft 
 
 /**
  * Load a sample: it replaces State only and keeps the current questions,
+ * and the current Text/JSON mode where the sample allows it,
  * whichever view holds them. Returns the draft unchanged while the raw JSON is
  * invalid, because replacing part of it would mean overwriting what was typed.
  */
+/** A sample's State, shown in the same Text/JSON mode as the State it replaces. */
+function sampleStateDraft(current: StateDraft, state: State): StateDraft {
+  return stateDraftFromValue(state, current.primaryField, current.mode === "text");
+}
+
 export function applySampleState(draft: RequestDraft, state: State): RequestDraft {
   let base = draft;
   if (draft.requestJson !== null) {
@@ -728,12 +812,12 @@ export function applySampleState(draft: RequestDraft, state: State): RequestDraf
     );
     if (reading.request === null) return draft;
     base = materializeJson(draft, reading);
-    const next = { ...base, state: stateDraftFromValue(state) };
+    const next = { ...base, state: sampleStateDraft(draft.state, state) };
     return draft.view === "json"
       ? { ...next, requestJson: formatJson({ state, questions: reading.request.questions }) }
       : next;
   }
-  return { ...base, state: stateDraftFromValue(state) };
+  return { ...base, state: sampleStateDraft(draft.state, state) };
 }
 
 /* ------------------------------------------------------- Comparisons -- */

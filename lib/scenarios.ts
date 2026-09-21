@@ -43,6 +43,11 @@ export interface Scenario {
   /** What this preset does *not* establish. Rendered in the UI. */
   caveat: string;
   stateSchemaId: StateSchemaId;
+  /**
+   * The State field that State → Text shows and edits: the scenario's primary
+   * message. Every other State field is kept as it is and sent unchanged.
+   */
+  primaryTextField: string;
   questions: Questions;
   /** Display order for the questions, since a map has no meaningful order. */
   questionOrder: string[];
@@ -356,6 +361,7 @@ export const SCENARIOS: Scenario[] = [
       "playground displays decisions only: it does not generate a reply, " +
       "block a student, contact staff, or start a school escalation process.",
     stateSchemaId: "safety",
+    primaryTextField: "student_message",
     questions: safetyQuestions,
     questionOrder: ["self_harm_context", "targeted_insult", "handling"],
     samples: safetySamples,
@@ -374,6 +380,7 @@ export const SCENARIOS: Scenario[] = [
       "address extraction, and no actual agency dispatch. " +
       AGENCY_TAXONOMY_PROVENANCE,
     stateSchemaId: "municipal",
+    primaryTextField: "feedback",
     questions: municipalQuestions,
     questionOrder: ["primary_agency", "disposition"],
     samples: municipalSamples,

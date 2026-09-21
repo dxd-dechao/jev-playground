@@ -158,8 +158,8 @@ export class EvaluationError extends Error {
  */
 export const ERROR_MESSAGES: Record<EvaluationErrorCode, string> = {
   not_configured:
-    "This server has no TypeSafe API key, so Live mode cannot call the model. " +
-    "Set TYPESAFE_API_KEY in .env.local and restart. Fixture mode still works.",
+    "This server has no TypeSafe API key, so it cannot call the model. " +
+    "Set TYPESAFE_API_KEY in .env.local and restart.",
   invalid_request:
     "The request was rejected before any model call because it did not validate.",
   payload_too_large:

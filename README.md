@@ -3,32 +3,30 @@
 A local playground for exploring **TypeSafe Jev typed questions** against two scenarios:
 **Student safety guardrails** and **Municipal ticket triage**.
 
-There are **two modes**, and the choice is always explicit:
+There is **one action**, **Evaluate with Jev**: one real, billed TypeSafe call per press,
+made from the server. You get the actual typed answers, the measured call duration, the
+token counts the response carried, and the model TypeSafe resolved. Nothing else on the page
+calls the model.
 
-- **Fixture** (the default) — hand-written illustrative answers. No model is called, no API
-  key is used, and no request leaves the browser. This is the mode for reading the request
-  contract (`{ state, questions }`), editing a State, and seeing how typed answers are
-  reconciled by ordinary application code.
-- **Live** — one real, billed TypeSafe call per press of **Evaluate with Jev**, made from
-  the server. You get the actual typed answers, the measured call duration, the token counts
-  the response carried, and the model TypeSafe resolved.
-
-Fixture mode needs no key and never will. Live mode needs one; see
-[Live mode and the API key](#live-mode-and-the-api-key).
+Evaluate needs a key on the server; see
+[The API key](#the-api-key). Without one the page still loads, and every editing feature
+works, but Evaluate is disabled with a short explanation and a **Re-check configuration**
+button. (Before JEV-08 there was also an offline Fixture mode; it has been removed from the
+page. The hand-written fixtures remain in `lib/fixtures.ts` as offline test infrastructure.)
 
 ## What this is not
 
 - **Not** a measurement of Jev quality. A working integration says the API returns typed
   answers in the documented shape. It says nothing about whether those answers are right.
-  The sample "expected outcome" notes are *proposals for review*, held outside State and
-  never submitted; they have never been scored against a real evaluation.
+  Each sample's proposed expected outcome is kept in `lib/scenarios.ts` for the offline
+  evaluation tooling only; it is not shown in the page, never enters State, and has never
+  been scored against a real evaluation.
 - **Not** evidence that the safety scenario is safe or that the routing scenario routes
   correctly. One response is one response.
 - **Not** a moderation or escalation system. The safety scenario does not contact anyone,
   log anything, or take action on a student. Nothing is dispatched to any agency.
 - **Not** a benchmark runner in the browser. The playground has no dataset sweep, no accuracy
-  metric, and no run history. Live results show what a single call measured; fixture results
-  show *Unavailable* for every measurement field, because nothing was measured. Offline
+  metric, and no run history. A result shows what a single call measured. Offline
   evaluation tooling lives separately under `evaluation/` (see [Evaluation](#evaluation)); its
   live commands are explicitly invoked, never part of a check, and never reachable from the
   browser.
@@ -52,9 +50,9 @@ npm run dev     # http://localhost:3000
 `package-lock.json` is committed; use `npm ci` for a reproducible install.
 
 **No key is needed to install, develop, build, or run any check.** Without one the app
-starts normally, Fixture mode works in full, and Live mode is disabled with an explanation.
+starts normally and every editor works; only Evaluate is disabled, with an explanation.
 
-## Live mode and the API key
+## The API key
 
 On macOS, store the TypeSafe key in your login Keychain rather than in a plaintext `.env.local` file:
 
@@ -81,9 +79,11 @@ accepted, or within quota. Nothing but a real call can establish that, and this 
 deliberately does not make one. So a configured server can still fail on the first
 evaluation with an authentication or rate-limit error; that is expected, not a bug.
 
-If the check itself fails, Live mode is disabled and Fixture mode is unaffected.
+While the check is running, or if it fails, Evaluate is disabled. A short status line
+beside the button says why, with a **Re-check configuration** button when there is no key
+or the check failed. A configured server shows the button alone.
 
-### What Live mode sends, and what it does not
+### What Evaluate sends, and what it does not
 
 The browser sends exactly `{ scenarioId, state, questions }` — the request shown in the
 editor, questions included (changed in JEV-03; earlier versions sent only the State and
@@ -101,8 +101,8 @@ request. Retries are switched off, including the SDK's own defaults, so a failur
 reported rather than silently re-billed. The call is aborted after 30 seconds. The shortcut
 has the same guards as the button: it does nothing while the request is invalid, the
 server is unconfigured, or a call is already in flight. Nothing else in the UI causes
-inference: typing, loading a sample, resetting, switching scenario, mode, or view, and
-re-checking configuration never call the model.
+inference: typing, loading a sample, resetting, switching scenario, State format, or view,
+and re-checking configuration never call the model.
 
 Before a live response is rendered it is checked against the questions that were submitted —
 answer ids and types must match, a Choice option must be one of that question's criteria,
@@ -113,9 +113,8 @@ error instead of being partly rendered.
 
 ### When a live call fails
 
-The failure is shown with its code and an actionable message, and **no fixture is
-substituted for it**. A failed model call has no answer, and showing a hand-written one in
-its place would misrepresent it. A previous successful live result stays visible under its
+The failure is shown with its code and an actionable message, and **nothing is substituted
+for it**. A failed model call has no answer. A previous successful live result stays visible under its
 own request snapshot, labelled stale if the State or questions have since changed.
 
 | Situation | Status | Code |
@@ -204,21 +203,18 @@ Three panels, left to right (stacked on narrow viewports):
    is yellow. Safety is the default. The full purpose and the scenario's caveat are in the
    **About this scenario** disclosure under the Request heading.
 2. **Request** — a **Form** / **Whole-request JSON** switch sits beside the heading (see
-   [Editing the request](#editing-the-request)). Below it, one box holds **Mode** (Fixture
-   or Live) and the single action button, **Preview fixture** or **Evaluate with Jev**
-   (**⌘/Ctrl+Enter** does the same). State and every question are always submitted together
-   as **one** request. Preview is available only for the scenario's default questions; the
-   live button stays disabled until the request validates *and* the server reports a key.
-   Then the **State** section: grouped sample buttons replace the State **only** and keep
-   your questions; **Reset to preset** (in red) restores the scenario's default State *and*
+   [Editing the request](#editing-the-request)). Below it is the one action, **Evaluate
+   with Jev** (**⌘/Ctrl+Enter** does the same). When the request is valid and the server has
+   a key, the button stands alone; otherwise one short line beside it says what blocks it.
+   State and every question are always submitted together as **one** request. Then the
+   **State** section: grouped sample buttons replace the State **only** and keep your
+   questions; **Reset to preset** (in red) restores the scenario's default State *and*
    questions and discards any invalid draft. Samples and Reset work in either view.
-3. **Response** — answers as cards or as raw JSON, always under a badge naming their source:
-   **Fixture data — no model call** or **Live Jev response — real model call**. Both views
-   state the source in words as well.
+3. **Response** — answers as cards or as raw JSON, always under the **Live Jev response —
+   real model call** badge and the model that answered.
 
-Each scenario keeps its **own** draft, and each scenario keeps a **separate result per
-mode**. Switching scenarios never shows one scenario's result beside another's request, and
-switching modes never turns a fixture into a live result or the other way round.
+Each scenario keeps its **own** draft and its **own** result. Switching scenarios never
+shows one scenario's result beside another's request.
 
 ### A result belongs to one request
 
@@ -229,8 +225,8 @@ input. Staleness compares values, so reformatting JSON whitespace alone does not
 an edit.
 
 The same rule governs a slow live response. Where it lands is decided when the request is
-sent, not when it arrives, so a response that comes back after you have switched scenario,
-switched mode, or edited the request can never look like an answer to the new input: it waits
+sent, not when it arrives, so a response that comes back after you have switched scenario
+or edited the request can never look like an answer to the new input: it waits
 in its own slot, marked stale if the State moved on. If a newer request for that same slot
 has already started, the older response is discarded outright rather than displayed.
 
@@ -241,14 +237,21 @@ invalid JSON — across scenario switches.
 
 **Form view.**
 
-- **State** has a **JSON** / **Text** toggle. JSON State may be an object, array, or string;
-  Text State is sent as one literal string, exactly as typed. `null`, numbers, booleans,
-  and empty values are rejected. The toggle is reversible:
-  - JSON → Text shows the JSON *source* as the literal text (or the string itself, if the
-    JSON is a string), and keeps the JSON source aside.
-  - Text → JSON restores that JSON source exactly if the text was not edited. If it was
-    edited, the text becomes a JSON string literal — it is never re-read as structure,
-    and nothing is dropped.
+- **State** has a **JSON** / **Text** toggle. JSON shows the full State: an object, array,
+  or string; `null`, numbers, booleans, and empty values are rejected. **Text shows only the
+  scenario's primary message** — `student_message` for Student safety guardrails, `feedback`
+  for Municipal ticket triage (`primaryTextField` in `lib/scenarios.ts`). Editing it changes
+  that one field; every other State field (`conversation_history`, `learning_context`,
+  `clarification_history`, `agency_config`, anything else) is kept and **sent unchanged**, so
+  the request is still the full structured object. For a top-level string State, Text edits
+  the string itself and it is sent as a string.
+  - Text → JSON restores the JSON source exactly if the text was not edited; otherwise it
+    shows the full State with the edited field in place.
+  - A valid whole-request JSON edit updates the Text on return to the Form, and a sample
+    keeps the current mode.
+  - Text is **refused**, with a reason next to the toggle, when it would lose or invent
+    data: invalid JSON, an array or other non-string non-object, or an object without a
+    string primary field. JSON stays authoritative then.
   Content is never trimmed.
 - **Questions** sit below State, one card per question (the coloured edge marks the type,
   which is also written out). The cards are presentation only: there is no per-card
@@ -271,8 +274,9 @@ by the last valid version.
 
 **Validation.** The request must be one the API accepts; beyond that it is not forced
 through the preset's State schema, since custom questions may want any shape. Two
-non-blocking warnings remain: Text State with preset questions (which refer to named
-fields such as `student_message` that plain text lacks — nothing is wrapped or rewritten),
+non-blocking warnings remain: a top-level string State with preset questions (which refer
+to named fields such as `student_message` that a plain string lacks — nothing is wrapped or
+rewritten),
 and object State missing fields the default questions read. A State containing an
 expected label (`expected_handling`, `ground_truth`, `correct_agency`, and similar) is
 still rejected: labels belong outside the payload, or the model can read its own answer.
@@ -280,21 +284,6 @@ still rejected: labels belong outside the payload, or the model can read its own
 Validation **reads and never rewrites**. No check trims or normalizes a string, so the
 request that is sent upstream and shown in the request snapshot is byte-for-byte the one
 submitted. Blank strings are still rejected — they are reported, not silently trimmed away.
-
-### How fixtures are chosen
-
-By **exact deep equality** against a sample's State — deliberately not by keyword matching.
-A keyword heuristic would be a hidden classifier pretending to be a model answer. Any State
-that does not match a sample gets a clearly labelled **generic placeholder**, flat by
-construction, which composes to "human review".
-
-Fixtures exist only for a scenario's **default questions**. With any added, removed,
-renamed, or reworded question, **Preview fixture** is disabled with an explanation — no
-fixture is invented for new questions, and old fixture answers are never shown as answers
-to new criteria. Your edits are kept, and Live remains available.
-
-Fixture responses carry no `model` and no `usage`, so there is no fabricated telemetry to
-mistake for a measurement.
 
 ## The question types
 

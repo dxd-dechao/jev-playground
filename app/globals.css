@@ -168,6 +168,11 @@ body {
     box-shadow: none;
     color: var(--color-ink-soft);
   }
+  /* Decorative: the empty alternative keeps it out of the accessible name. */
+  .btn-primary::before {
+    content: "▶" / "";
+    font-size: 0.8em;
+  }
   .btn-primary[aria-busy="true"] {
     background: var(--color-highlight);
   }

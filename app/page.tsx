@@ -8,14 +8,14 @@
  *
  *  - One request draft *per scenario* — State, questions, the chosen view, and
  *    any pending raw JSON — preserved across switches (`lib/request-draft.ts`).
- *  - One result per *scenario and mode*. A fixture and a live answer occupy
- *    different slots, so switching mode or scenario and back can never show a
- *    fixture where a live result was, or the other way round.
+ *  - One live result per scenario, so switching scenario and back never shows
+ *    one scenario's answers beside another's request. Every result is a live
+ *    Jev response; the playground has no fixture mode.
  *  - A result carries the exact request (State *and* questions) it was produced
  *    from, and the question order it was displayed in. Staleness is derived by
  *    comparing that snapshot's values against the current draft, so editing
  *    either half marks it stale and it is never re-attached to new input.
- *  - A live response is stored under the scenario, mode, and snapshot it was
+ *  - A live response is stored under the scenario and snapshot it was
  *    requested for, whenever it arrives. If the user has since edited or moved
  *    elsewhere, it stays in its own slot and is labelled stale. If a newer
  *    request for the same slot has started, the older response is discarded.
@@ -23,28 +23,21 @@
  *    Cmd/Ctrl+Enter. A synchronous in-flight guard refuses a second one, so a
  *    repeated key or a double press cannot start a second paid call.
  *  - Nothing but an explicit submission causes inference. Typing, loading a
- *    sample, resetting, switching scenario, mode, or view, and checking
+ *    sample, resetting, switching scenario, State format, or view, and checking
  *    configuration never call the model.
- *  - A fixture exists only for a scenario's default questions; with edited
- *    questions Preview fixture is unavailable rather than showing answers to
- *    different criteria. A live failure is never replaced by a fixture.
+ *  - A live failure stays a failure. Nothing is substituted for it.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RequestEditor } from "@/components/request-editor";
 import type {
   PlaygroundError,
-  PlaygroundMode,
   PlaygroundResult,
   ResponseView,
 } from "@/components/response-panel";
 import { ResponsePanel } from "@/components/response-panel";
 import { ScenarioPicker } from "@/components/scenario-picker";
-import {
-  matchSampleId,
-  questionsMatchPreset,
-  resolveFixtureForRequest,
-} from "@/lib/fixtures";
+import { matchSampleId, questionsMatchPreset } from "@/lib/fixtures";
 import type { QuestionRow, RequestDraft, RequestView, StateMode } from "@/lib/request-draft";
 import {
   applySampleState,
@@ -65,8 +58,8 @@ import type { ValidationResult } from "@/lib/schemas";
 import { presetStateIssues, validatePlaygroundRequest } from "@/lib/schemas";
 import type { ConfigStatus, EvaluationRequest, LiveEvaluationPayload } from "@/lib/types";
 
-/** One result slot per scenario *and* mode. The pair is the identity. */
-type ResultSlots = Record<ScenarioId, Record<PlaygroundMode, PlaygroundResult | null>>;
+/** One live result slot per scenario. */
+type ResultSlots = Record<ScenarioId, PlaygroundResult | null>;
 
 function perScenario<T>(make: (scenarioId: ScenarioId) => T): Record<ScenarioId, T> {
   const record = {} as Record<ScenarioId, T>;
@@ -113,11 +106,8 @@ function isOutdated(
 export default function PlaygroundPage() {
   const [activeScenarioId, setActiveScenarioId] =
     useState<ScenarioId>(DEFAULT_SCENARIO_ID);
-  const [mode, setMode] = useState<PlaygroundMode>("fixture");
   const [drafts, setDrafts] = useState<Record<ScenarioId, RequestDraft>>(initialDrafts);
-  const [results, setResults] = useState<ResultSlots>(() =>
-    perScenario(() => ({ fixture: null, live: null })),
-  );
+  const [results, setResults] = useState<ResultSlots>(() => perScenario(() => null));
   const [errors, setErrors] = useState<Record<ScenarioId, PlaygroundError | null>>(() =>
     perScenario(() => null),
   );
@@ -193,23 +183,20 @@ export default function PlaygroundPage() {
     return notes;
   }, [questionsAreDefault, reading, scenario]);
 
-  const result = results[activeScenarioId][mode];
+  const result = results[activeScenarioId];
   const isStale = result !== null && isOutdated(result.requestSnapshot, reading.request);
 
-  // A failure belongs to the live path; it is never shown next to a fixture.
-  const error = mode === "live" ? errors[activeScenarioId] : null;
+  const error = errors[activeScenarioId];
   const isErrorStale = error !== null && isOutdated(error.requestSnapshot, reading.request);
   const isPending = pending[activeScenarioId];
 
-  const canSubmit =
-    mode === "fixture"
-      ? isRequestValid && questionsAreDefault
-      : isRequestValid && configStatus === "configured" && !isPending;
+  const canSubmit = isRequestValid && configStatus === "configured" && !isPending;
 
   /**
-   * Ask the server whether Live mode is possible at all. This is a plain GET
+   * Ask the server whether evaluation is possible at all. This is a plain GET
    * that returns one boolean; it makes no model call and costs nothing, so it
-   * is safe on mount and on demand.
+   * is safe on mount and on demand. Until it answers "configured", Evaluate
+   * stays disabled.
    */
   const checkConfig = useCallback(async () => {
     setConfigStatus("unknown");
@@ -226,8 +213,8 @@ export default function PlaygroundPage() {
         (payload as { configured?: unknown }).configured === true;
       setConfigStatus(configured ? "configured" : "missing");
     } catch {
-      // Fixture mode must stay fully usable when the check fails, so the
-      // failure is recorded and nothing else about the page changes.
+      // The failure is recorded and shown beside the disabled button; nothing
+      // else about the page changes.
       setConfigStatus("unavailable");
     }
   }, []);
@@ -296,25 +283,6 @@ export default function PlaygroundPage() {
     updateDraft(() => initialDraft(scenario));
   }, [scenario, updateDraft]);
 
-  const previewFixture = useCallback(() => {
-    const request = reading.request;
-    if (!isRequestValid || request === null) return;
-    const fixture = resolveFixtureForRequest(scenario.id, request);
-    // Edited questions have no fixture. Nothing is substituted for one.
-    if (fixture === null) return;
-    const preview: PlaygroundResult = {
-      source: "fixture",
-      scenarioId: scenario.id,
-      fixture,
-      requestSnapshot: request,
-      questionOrder: reading.order,
-    };
-    setResults((previous) => ({
-      ...previous,
-      [scenario.id]: { ...previous[scenario.id], fixture: preview },
-    }));
-  }, [isRequestValid, reading, scenario.id]);
-
   const evaluateLive = useCallback(async () => {
     const request = reading.request;
     if (!isRequestValid || request === null) return;
@@ -368,10 +336,7 @@ export default function PlaygroundPage() {
           requestSnapshot,
           questionOrder,
         };
-        setResults((previous) => ({
-          ...previous,
-          [scenarioId]: { ...previous[scenarioId], live },
-        }));
+        setResults((previous) => ({ ...previous, [scenarioId]: live }));
         setErrors((previous) => ({ ...previous, [scenarioId]: null }));
         return;
       }
@@ -388,8 +353,7 @@ export default function PlaygroundPage() {
           : UNREADABLE_ERROR;
 
       // The previous successful live result, if any, stays exactly as it was —
-      // with its own snapshot — and this failure stays visible above it. No
-      // fixture is substituted.
+      // with its own snapshot — and this failure stays visible above it.
       setErrors((previous) => ({
         ...previous,
         [scenarioId]: {
@@ -427,15 +391,11 @@ export default function PlaygroundPage() {
 
   const submit = useCallback(() => {
     if (!canSubmit) return;
-    if (mode === "fixture") {
-      previewFixture();
-      return;
-    }
     void evaluateLive();
-  }, [canSubmit, evaluateLive, mode, previewFixture]);
+  }, [canSubmit, evaluateLive]);
 
   /**
-   * Cmd/Ctrl+Enter submits for the current mode, with every guard the button
+   * Cmd/Ctrl+Enter submits, with every guard the button
    * has. The listener reads the latest `submit` through a ref so it never acts
    * on a stale request, and ignores auto-repeat so holding the keys is one
    * submission, not many.
@@ -463,17 +423,13 @@ export default function PlaygroundPage() {
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
           <h1 className="text-3xl font-extrabold tracking-tight">Jev playground</h1>
           <p className="border-2 border-[var(--color-line)] bg-[var(--color-panel)] px-2 py-1 text-xs font-semibold">
-            Fixture mode is offline and needs no key. Live mode calls TypeSafe
-            Jev once per submission, from the server.
+            Each Evaluate calls TypeSafe Jev once, from the server.
           </p>
         </div>
         <p className="mt-3 max-w-4xl text-sm text-[var(--color-ink-soft)]">
-          Pick a scenario, edit its State and questions, then either preview the
-          fixed fixture response or evaluate the request with Jev. Fixture
-          answers were written by hand for the default questions to illustrate
-          the response shape and are not measured Jev output. Live answers are
-          one model&rsquo;s judgment of one request: they show what the API
-          returns, not how well it performs.
+          Pick a scenario, edit its State and questions, then evaluate the
+          request with Jev. Answers are one model&rsquo;s judgment of one
+          request: they show what the API returns, not how well it performs.
         </p>
       </header>
 
@@ -495,7 +451,6 @@ export default function PlaygroundPage() {
             validationErrors={validation.errors}
             warnings={warnings}
             isRequestValid={isRequestValid}
-            questionsAreDefault={questionsAreDefault}
             matchedSampleId={matchedSampleId}
             onStateModeChange={setStateMode}
             onStateTextChange={setStateText}
@@ -504,8 +459,6 @@ export default function PlaygroundPage() {
             onRequestJsonChange={setRawJson}
             onLoadSample={loadSample}
             onReset={resetPreset}
-            mode={mode}
-            onModeChange={setMode}
             configStatus={configStatus}
             onRecheckConfig={() => void checkConfig()}
             isPending={isPending}
@@ -517,12 +470,11 @@ export default function PlaygroundPage() {
         <div className="min-w-0">
           <ResponsePanel
             scenario={scenario}
-            mode={mode}
             result={result}
             error={error}
             isStale={isStale}
             isErrorStale={isErrorStale}
-            isPending={isPending && mode === "live"}
+            isPending={isPending}
             view={view}
             onViewChange={setView}
           />

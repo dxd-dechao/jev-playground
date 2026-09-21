@@ -33,6 +33,7 @@ import {
   sameRequest,
   setRequestJson,
   stateDraftFromValue,
+  stateTextAvailability,
   textStateMeetsPresetQuestions,
   toggleStateMode,
 } from "@/lib/request-draft";
@@ -281,44 +282,144 @@ describe("invalid whole-request JSON survives until fixed or reset", () => {
   });
 });
 
-describe("State Text/JSON rule", () => {
-  it("JSON → Text shows the JSON source as literal text, and back restores it exactly", () => {
-    const source = '{\n  "a":   1\n}';
-    const json = { mode: "json" as const, json: source, text: "", textBase: null };
+describe("focused Text State", () => {
+  const IMMEDIATE = "I am going to hurt myself right now. I am alone.";
 
-    const text = toggleStateMode(json, "text");
-    expect(text.mode).toBe("text");
-    expect(text.text).toBe(source);
-    expect(readStateDraft(text)).toEqual({ ok: true, value: source });
+  for (const scenario of [safety, municipal]) {
+    const field = scenario.primaryTextField;
 
-    const back = toggleStateMode(text, "json");
-    expect(back.json).toBe(source);
-    expect(readStateDraft(back)).toEqual({ ok: true, value: { a: 1 } });
+    describe(`${scenario.id} (${field})`, () => {
+      it("maps the scenario to its primary message field", () => {
+        expect(field).toBe(scenario.id === "safety" ? "student_message" : "feedback");
+      });
+
+      it("Text shows only the primary field's string, for every sample", () => {
+        for (const sample of scenario.samples) {
+          const draft = applySampleState(initialDraft(scenario), sample.state);
+          const text = toggleStateMode(draft.state, "text");
+          expect(text.mode).toBe("text");
+          expect(text.text).toBe((sample.state as Record<string, unknown>)[field]);
+          expect(text.text).not.toContain("{");
+          // Nothing changed yet: the full State reads back exactly.
+          expect(readStateDraft(text)).toEqual({ ok: true, value: sample.state });
+        }
+      });
+
+      it("editing Text changes only that field and keeps every sibling and nested value", () => {
+        const original = getSample(scenario, scenario.defaultSampleId).state as Record<
+          string,
+          unknown
+        >;
+        const text = toggleStateMode(initialDraft(scenario).state, "text");
+        const edited = editStateText(text, "  An edited message.\n");
+        const read = readStateDraft(edited);
+        expect(read).toEqual({ ok: true, value: { ...original, [field]: "  An edited message.\n" } });
+        const value = (read as { value: Record<string, unknown> }).value;
+        expect(Object.keys(value)).toEqual(Object.keys(original));
+        for (const key of Object.keys(original)) {
+          if (key !== field) expect(value[key]).toEqual(original[key]);
+        }
+        // The draft reads as a full structured request, not a string.
+        const draft = { ...initialDraft(scenario), state: edited };
+        expect(readDraft(draft).request?.state).toEqual({
+          ...original,
+          [field]: "  An edited message.\n",
+        });
+      });
+
+      it("JSON → Text → JSON restores the JSON source exactly when unedited", () => {
+        const json = initialDraft(scenario).state;
+        const back = toggleStateMode(toggleStateMode(json, "text"), "json");
+        expect(back.mode).toBe("json");
+        expect(back.json).toBe(json.json);
+      });
+
+      it("an edited Text appears at the mapped field when JSON is reopened", () => {
+        const original = getSample(scenario, scenario.defaultSampleId).state as Record<
+          string,
+          unknown
+        >;
+        const edited = editStateText(toggleStateMode(initialDraft(scenario).state, "text"), "New");
+        const back = toggleStateMode(edited, "json");
+        expect(JSON.parse(back.json)).toEqual({ ...original, [field]: "New" });
+        // …and the whole-request JSON view carries the full object too.
+        const asJson = openJsonView({ ...initialDraft(scenario), state: edited });
+        expect(JSON.parse(asJson.requestJson ?? "").state).toEqual({ ...original, [field]: "New" });
+      });
+
+      it("a valid whole-request JSON edit updates the focused Text on return to the Form", () => {
+        const inText = {
+          ...initialDraft(scenario),
+          state: toggleStateMode(initialDraft(scenario).state, "text"),
+        };
+        const asJson = openJsonView(inText);
+        const request = JSON.parse(asJson.requestJson ?? "") as {
+          state: Record<string, unknown>;
+          questions: unknown;
+        };
+        request.state[field] = "Edited in the whole-request JSON";
+        const back = openFormView(setRequestJson(asJson, JSON.stringify(request)));
+        expect(back.state.mode).toBe("text");
+        expect(back.state.text).toBe("Edited in the whole-request JSON");
+        expect(readForm(back).request?.state).toEqual(request.state);
+      });
+
+      it("a sample keeps Text mode and shows the sample's primary message", () => {
+        const inText = {
+          ...initialDraft(scenario),
+          state: toggleStateMode(initialDraft(scenario).state, "text"),
+        };
+        const sample = scenario.samples[scenario.samples.length - 1]!;
+        const next = applySampleState(inText, sample.state);
+        expect(next.state.mode).toBe("text");
+        expect(next.state.text).toBe((sample.state as Record<string, unknown>)[field]);
+        expect(readForm(next).request?.state).toEqual(sample.state);
+      });
+    });
+  }
+
+  it("the immediate self-harm sample shows exactly its message in Text", () => {
+    const sample = safety.samples.find(
+      (entry) => (entry.state as { student_message?: unknown }).student_message === IMMEDIATE,
+    );
+    expect(sample).toBeDefined();
+    const draft = applySampleState(initialDraft(safety), sample!.state);
+    expect(toggleStateMode(draft.state, "text").text).toBe(IMMEDIATE);
   });
 
-  it("JSON → Text unwraps a JSON string instead of showing its quotes", () => {
-    const text = toggleStateMode(stateDraftFromValue("  hello\n"), "text");
+  it("keeps top-level string State: Text edits the string and it is sent as a string", () => {
+    const text = toggleStateMode(stateDraftFromValue("  hello\n", "student_message"), "text");
     expect(text.text).toBe("  hello\n");
-    expect(toggleStateMode(text, "json").json).toBe(JSON.stringify("  hello\n", null, 2));
+    const edited = editStateText(text, "  padded \n");
+    expect(readStateDraft(edited)).toEqual({ ok: true, value: "  padded \n" });
+    expect(toggleStateMode(edited, "json").json).toBe(JSON.stringify("  padded \n", null, 2));
   });
 
-  it("keeps an invalid JSON draft as text rather than losing it", () => {
-    const broken = { mode: "json" as const, json: '{ "a": ', text: "", textBase: null };
-    const text = toggleStateMode(broken, "text");
-    expect(text.text).toBe('{ "a": ');
-    expect(toggleStateMode(text, "json").json).toBe('{ "a": ');
-  });
-
-  it("turns edited text into a JSON string literal, never re-reading it as structure", () => {
-    const text = toggleStateMode(stateDraftFromValue({ a: 1 }), "text");
-    const edited = editStateText(text, '{"b": 2} and more');
-    const back = toggleStateMode(edited, "json");
-    expect(readStateDraft(back)).toEqual({ ok: true, value: '{"b": 2} and more' });
+  it("refuses Text for State it cannot focus without loss, and explains why", () => {
+    const cases: Array<[string, string | null]> = [
+      ['{ "student_message": ', "student_message"], // invalid JSON
+      ["[1, 2]", "student_message"], // array
+      ["42", "student_message"], // number
+      ['{ "message": "hi" }', "student_message"], // primary field missing
+      ['{ "student_message": { "text": "hi" } }', "student_message"], // not a string
+      ['{ "student_message": "hi" }', null], // no mapping at all
+    ];
+    for (const [json, primaryField] of cases) {
+      const state = { mode: "json" as const, json, text: "", textBase: null, primaryField };
+      const availability = stateTextAvailability(state);
+      expect(availability.ok, json).toBe(false);
+      expect((availability as { reason: string }).reason.length).toBeGreaterThan(0);
+      // Refused: the draft, and so the JSON source, is untouched.
+      expect(toggleStateMode(state, "text"), json).toBe(state);
+    }
   });
 
   it("does not trim Text State", () => {
-    const text = editStateText(toggleStateMode(stateDraftFromValue({ a: 1 }), "text"), "  padded \n");
-    expect(readStateDraft(text)).toEqual({ ok: true, value: "  padded \n" });
+    const text = editStateText(
+      toggleStateMode(stateDraftFromValue({ student_message: "a" }, "student_message"), "text"),
+      "  padded \n",
+    );
+    expect(readStateDraft(text)).toEqual({ ok: true, value: { student_message: "  padded \n" } });
   });
 });
 

@@ -128,14 +128,11 @@ export type Usage =
  */
 export interface EvaluationResponse {
   answers: Answers;
-  /** The model that performed the evaluation. Unavailable in fixture mode. */
+  /** The model that performed the evaluation. Absent from offline fixtures. */
   model?: string;
-  /** Token usage. Unavailable in fixture mode, and absent if not returned. */
+  /** Token usage. Absent from offline fixtures, and absent if not returned. */
   usage?: Usage;
 }
-
-/** Where a displayed result came from. Never inferred; always carried. */
-export type ResultSource = "fixture" | "live";
 
 /* ------------------------------------------------- Server API boundary -- */
 
@@ -202,7 +199,7 @@ export interface ConfigPayload {
  * `unknown` and `unavailable` are kept apart from `missing` because they mean
  * different things to a user: one is "not asked yet or still asking", one is
  * "the check itself failed", and only `missing` is "there is no key". In none of
- * the three is Live mode offered, and in all four Fixture mode works.
+ * the three can the playground evaluate; Evaluate stays disabled.
  */
 export type ConfigStatus = "unknown" | "configured" | "missing" | "unavailable";
 

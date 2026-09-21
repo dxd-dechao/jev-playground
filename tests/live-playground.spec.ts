@@ -1,5 +1,5 @@
 /**
- * Browser tests for Live mode — AGAINST MOCKED RESPONSES ONLY.
+ * Browser tests for live evaluation — AGAINST MOCKED RESPONSES ONLY.
  *
  * ================================================================
  * TEST EVIDENCE, NOT PROVIDER VERIFICATION
@@ -167,25 +167,45 @@ function measurementValue(page: Page, field: string) {
 async function goLive(page: Page) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Jev playground" })).toBeVisible();
-  await page.getByTestId("mode-live").click();
 }
 
 test("shows a configured server and enables Evaluate with Jev", async ({ page }) => {
   await mockConfig(page, true);
   await goLive(page);
 
-  await expect(page.getByTestId("config-status")).toHaveAttribute(
-    "data-status",
-    "configured",
-  );
-  // Configured is not verified, and the UI must say so.
-  await expect(page.getByTestId("config-status")).toContainText("not that it is valid");
-  await expect(page.getByTestId("config-recheck")).toHaveCount(0);
   await expect(page.getByTestId("evaluate-live")).toBeEnabled();
-  await expect(page.getByTestId("response-empty")).toContainText("No live result yet");
+  // Configured and valid: no status line, no re-check, just the button.
+  await expect(page.getByTestId("config-status")).toHaveCount(0);
+  await expect(page.getByTestId("config-recheck")).toHaveCount(0);
+  await expect(page.getByTestId("evaluate-live")).not.toHaveAttribute("aria-describedby", /.+/);
+  await expect(page.getByTestId("response-empty")).toContainText("No result yet");
 });
 
-test("disables Live and keeps Fixture usable when no key is configured", async ({
+test("keeps Evaluate disabled while configuration is still being checked", async ({ page }) => {
+  let answer = () => {};
+  const held = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  await page.route("**/api/config", async (route) => {
+    await held;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true }),
+    });
+  });
+  await goLive(page);
+
+  await expect(page.getByTestId("config-status")).toHaveAttribute("data-status", "unknown");
+  await expect(page.getByTestId("config-status")).toContainText("Checking");
+  await expect(page.getByTestId("evaluate-live")).toBeDisabled();
+
+  answer();
+  await expect(page.getByTestId("evaluate-live")).toBeEnabled();
+  await expect(page.getByTestId("config-status")).toHaveCount(0);
+});
+
+test("disables Evaluate with an actionable re-check when no key is configured", async ({
   page,
 }) => {
   await mockConfig(page, false);
@@ -196,19 +216,20 @@ test("disables Live and keeps Fixture usable when no key is configured", async (
     "missing",
   );
   await expect(page.getByTestId("config-status")).toContainText("TYPESAFE_API_KEY");
+  await expect(page.getByTestId("config-status")).toHaveAttribute("role", "alert");
   await expect(page.getByTestId("evaluate-live")).toBeDisabled();
+  await expect(page.getByTestId("evaluate-live")).toHaveAccessibleDescription(/TYPESAFE_API_KEY/);
+  await expect(page.getByTestId("config-recheck")).toBeVisible();
 
   // No key fragment, length, or account detail is disclosed.
   const text = await page.getByTestId("config-status").innerText();
   expect(text).not.toMatch(/sk-/);
-
-  // Fixture mode is unaffected.
-  await page.getByTestId("mode-fixture").click();
-  await page.getByTestId("preview-fixture").click();
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
+  // Nothing else stands in for the missing call.
+  await expect(page.getByTestId("preview-fixture")).toHaveCount(0);
+  await expect(page.getByTestId("mode-fixture")).toHaveCount(0);
 });
 
-test("keeps Fixture usable when the configuration check itself fails", async ({
+test("disables Evaluate with a re-check when the configuration check itself fails", async ({
   page,
 }) => {
   await mockConfig(page, "fail");
@@ -219,11 +240,9 @@ test("keeps Fixture usable when the configuration check itself fails", async ({
     "unavailable",
   );
   await expect(page.getByTestId("evaluate-live")).toBeDisabled();
-
-  await page.getByTestId("mode-fixture").click();
-  await page.getByTestId("preview-fixture").click();
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
-  await expect(page.getByTestId("result-source")).toHaveText("Source: fixture");
+  await expect(page.getByTestId("config-status")).toContainText("check failed");
+  await expect(page.getByTestId("config-recheck")).toBeVisible();
+  await expect(page.getByTestId("fixture-badge")).toHaveCount(0);
 });
 
 test("re-checking configuration does not evaluate anything", async ({ page }) => {
@@ -273,11 +292,11 @@ test("renders a successful live result with its real measurements", async ({
     getDefaultSample(getScenario("safety")).state,
   );
 
-  await expect(page.getByTestId("result-source")).toHaveText("Source: live");
+  await expect(page.getByTestId("result-model")).toHaveText("Model: jev-1-mocked");
   await expect(page.getByTestId("fixture-badge")).toHaveCount(0);
   await expect(page.getByTestId("live-badge")).toContainText("real model call");
 
-  // The same renderers and composition rules as a fixture.
+  // Raw answers and the separately composed outcome.
   await expect(page.getByTestId("composed-outcome")).toContainText(
     "Composed by application code",
   );
@@ -297,7 +316,7 @@ test("renders a successful live result with its real measurements", async ({
 
   await page.getByTestId("view-json").click();
   await expect(page.getByTestId("live-badge")).toBeVisible();
-  await expect(page.getByTestId("result-source")).toHaveText("Source: live");
+  await expect(page.getByTestId("result-model")).toHaveText("Model: jev-1-mocked");
   const json = await page.getByTestId("response-json").innerText();
   expect(json).toContain('"model": "jev-1-mocked"');
   expect(json).toContain('"input_tokens": 734');
@@ -447,9 +466,6 @@ test("shows an actionable live failure and never substitutes a fixture", async (
   await expect(page.getByTestId("live-error")).toBeVisible();
   await expect(page.getByTestId("live-error-code")).toHaveText("upstream_auth");
   await expect(page.getByTestId("live-error")).toContainText("TYPESAFE_API_KEY");
-  await expect(page.getByTestId("live-error")).toContainText(
-    "No fixture was substituted",
-  );
 
   // A failure has no answers. Nothing hand-written appears in their place.
   await expect(page.getByTestId("fixture-badge")).toHaveCount(0);
@@ -567,7 +583,7 @@ test("a response arriving after a scenario switch never answers the new scenario
   await expect(page.getByTestId("live-badge")).toHaveCount(0);
   await expect(page.getByTestId("response-empty")).toBeVisible();
 
-  // It is waiting where it belongs: under safety, in Live mode.
+  // It is waiting where it belongs: under safety.
   await page.getByTestId("scenario-safety").click();
   await expect(page.getByTestId("live-badge")).toBeVisible();
   await expect(page.getByTestId("safety-recommendation")).toHaveText("Allow");
@@ -602,7 +618,7 @@ test("a response arriving after an edit is kept as an answer to what was sent", 
   );
 });
 
-test("a response arriving after a mode switch cannot turn a fixture into a live result", async ({
+test("a response arriving after Text, JSON and view switches still answers what was sent", async ({
   page,
 }) => {
   await mockConfig(page, true);
@@ -612,38 +628,32 @@ test("a response arriving after a mode switch cannot turn a fixture into a live 
     { delay: true },
   );
   await goLive(page);
+  const sent = getDefaultSample(getScenario("safety")).state;
 
   await page.getByTestId("evaluate-live").click();
   await expect(page.getByTestId("response-loading")).toBeVisible();
 
-  // Switch to Fixture and preview while the live call is in flight.
-  await page.getByTestId("mode-fixture").click();
-  await page.getByTestId("preview-fixture").click();
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
+  // Presentation switches while the call is in flight change nothing sent.
+  await page.getByTestId("state-mode-text").click();
+  await page.getByTestId("state-mode-json").click();
+  await page.getByTestId("request-view-json").click();
+  await page.getByTestId("request-view-form").click();
+  await page.getByTestId("view-json").click();
 
   const landed = page.waitForResponse("**/api/evaluate");
   evaluate.release();
   await landed;
-  await page.waitForTimeout(250);
 
-  // The fixture slot stays a fixture. The live answer does not overwrite it.
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
-  await expect(page.getByTestId("result-source")).toHaveText("Source: fixture");
-  await expect(page.getByTestId("live-badge")).toHaveCount(0);
-  await expect(page.getByTestId("measurement-block")).toContainText("Unavailable");
-
-  // And switching back shows the live answer as live, in its own slot.
-  await page.getByTestId("mode-live").click();
   await expect(page.getByTestId("live-badge")).toBeVisible();
-  await expect(page.getByTestId("result-source")).toHaveText("Source: live");
-
-  // Switching back again still finds the fixture, unchanged.
-  await page.getByTestId("mode-fixture").click();
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
-  await expect(page.getByTestId("result-source")).toHaveText("Source: fixture");
+  // The request is unchanged, so the answer is current rather than stale.
+  await expect(page.getByTestId("stale-warning")).toHaveCount(0);
+  await expect(page.getByTestId("snapshot-json")).toContainText(
+    (sent as { student_message: string }).student_message,
+  );
+  expect(evaluate.requests).toHaveLength(1);
 });
 
-test("the municipal scenario works in Live mode too", async ({ page }, testInfo) => {
+test("the municipal scenario evaluates too", async ({ page }, testInfo) => {
   await mockConfig(page, true);
   await mockEvaluate(page, () => ({ status: 200, json: livePayload(MUNICIPAL_ANSWERS) }));
   await goLive(page);

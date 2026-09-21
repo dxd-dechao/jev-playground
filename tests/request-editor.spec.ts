@@ -41,23 +41,21 @@ function rows(page: Page): Locator {
   return page.getByTestId("question-row");
 }
 
-function submitButton(page: Page, mode: "fixture" | "live"): Locator {
-  return page.getByTestId(mode === "fixture" ? "preview-fixture" : "evaluate-live");
+function submitButton(page: Page): Locator {
+  return page.getByTestId("evaluate-live");
 }
 
-async function open(page: Page) {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Jev playground" })).toBeVisible();
-}
-
-async function mockConfig(page: Page) {
+/** Open the page against a server that reports a key (mocked; no key exists). */
+async function open(page: Page, options: { configured?: boolean } = {}) {
   await page.route("**/api/config", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ configured: true }),
+      body: JSON.stringify({ configured: options.configured ?? true }),
     }),
   );
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Jev playground" })).toBeVisible();
 }
 
 type SentQuestion = {
@@ -138,11 +136,9 @@ async function mockEvaluate(page: Page, options: { delay?: boolean } = {}): Prom
 }
 
 async function goLive(page: Page, options: { delay?: boolean } = {}) {
-  await mockConfig(page);
   const evaluate = await mockEvaluate(page, options);
   await open(page);
-  await page.getByTestId("mode-live").click();
-  await expect(page.getByTestId("config-status")).toHaveAttribute("data-status", "configured");
+  await expect(submitButton(page)).toBeEnabled();
   return evaluate;
 }
 
@@ -273,7 +269,6 @@ test("reports duplicate ids and options without losing a row, and blocks submiss
   page,
 }) => {
   await open(page);
-  await page.getByTestId("mode-live").click();
 
   const handlingId = rows(page).nth(2).getByTestId("question-id-input");
   await handlingId.fill("targeted_insult");
@@ -282,7 +277,7 @@ test("reports duplicate ids and options without losing a row, and blocks submiss
   );
   await expect(rows(page)).toHaveCount(3);
   await expect(handlingId).toHaveAttribute("aria-invalid", "true");
-  await expect(submitButton(page, "live")).toBeDisabled();
+  await expect(submitButton(page)).toBeDisabled();
   // A map cannot hold both, so the JSON view will not open and drop one.
   await expect(page.getByTestId("request-view-json")).toBeDisabled();
   await expect(page.getByTestId("json-view-blocked")).toBeVisible();
@@ -300,13 +295,12 @@ test("reports duplicate ids and options without losing a row, and blocks submiss
 
 test("empty rows and invalid Score or Choice shapes disable submission", async ({ page }) => {
   await open(page);
-  await page.getByTestId("mode-live").click();
 
   await page.getByTestId("add-question").click();
   await expect(page.getByTestId("request-errors")).toContainText(
     "question_4.instructions: must not be empty",
   );
-  await expect(submitButton(page, "live")).toBeDisabled();
+  await expect(submitButton(page)).toBeDisabled();
   await rows(page).last().getByTestId("remove-question").click();
   await expect(page.getByTestId("request-errors")).toHaveCount(0);
 
@@ -315,13 +309,13 @@ test("empty rows and invalid Score or Choice shapes disable submission", async (
     await handling.getByTestId("remove-option").first().click();
   }
   await expect(page.getByTestId("request-errors")).toContainText("at least 2 options");
-  await expect(submitButton(page, "live")).toBeDisabled();
+  await expect(submitButton(page)).toBeDisabled();
 
   await handling.getByTestId("question-type").selectOption("score");
   await expect(page.getByTestId("request-errors")).toContainText("must not be empty");
   await handling.getByTestId("remove-level").first().click();
   await expect(page.getByTestId("request-errors")).toContainText("at least 2 levels");
-  await expect(submitButton(page, "live")).toBeDisabled();
+  await expect(submitButton(page)).toBeDisabled();
 });
 
 /* ---------------------------------------------------- Whole-request JSON -- */
@@ -335,7 +329,7 @@ test("invalid whole-request JSON survives view and scenario switches until Reset
   const broken = '{ "state": "hello", "questions": { "q": ';
   await editor.fill(broken);
   await expect(page.getByTestId("request-errors")).toContainText("not valid JSON");
-  await expect(submitButton(page, "fixture")).toBeDisabled();
+  await expect(submitButton(page)).toBeDisabled();
 
   // To the Form: locked, never silently replaced by the last valid Form.
   await page.getByTestId("request-view-form").click();
@@ -358,7 +352,7 @@ test("invalid whole-request JSON survives view and scenario switches until Reset
   await expect(page.getByTestId("request-view-form")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("question-count")).toContainText("Questions (3");
   await expect(page.getByTestId("request-errors")).toHaveCount(0);
-  await expect(submitButton(page, "fixture")).toBeEnabled();
+  await expect(submitButton(page)).toBeEnabled();
 });
 
 test("rejects duplicate question ids and option keys typed as JSON, keeping the text", async ({
@@ -376,7 +370,7 @@ test("rejects duplicate question ids and option keys typed as JSON, keeping the 
     'question id "q" appears more than once',
   );
   await expect(editor).toHaveValue(duplicate);
-  await expect(submitButton(page, "fixture")).toBeDisabled();
+  await expect(submitButton(page)).toBeDisabled();
 
   const duplicateOption =
     '{"state":"hi","questions":{"p":{"type":"choice","instructions":"Pick",' +
@@ -420,37 +414,91 @@ test("a valid JSON edit carries over to the Form", async ({ page }) => {
 
 /* -------------------------------------------------------------- State -- */
 
-test("switches State between JSON and Text reversibly, and warns about named fields", async ({
+test("Text shows only the primary message, and JSON round-trips the full State", async ({
   page,
 }) => {
   await open(page);
   const editor = page.getByTestId("state-editor");
   const source = await editor.inputValue();
+  const original = JSON.parse(source) as Record<string, unknown>;
 
-  // JSON → Text: the JSON source becomes the literal text, explicitly.
+  // JSON → Text: only student_message, with no braces, keys, or context.
   await page.getByTestId("state-mode-text").click();
-  await expect(editor).toHaveValue(source);
-  await expect(page.getByTestId("state-mode-note")).toContainText("converted from the JSON source");
-  await expect(page.getByTestId("request-warnings")).toContainText("plain text");
-
-  // Unedited, it comes back exactly.
-  await page.getByTestId("state-mode-json").click();
-  await expect(editor).toHaveValue(source);
+  await expect(editor).toHaveValue(original.student_message as string);
+  await expect(page.getByTestId("state-mode-note")).toContainText("student_message");
+  await expect(page.getByTestId("state-mode-note")).toContainText("kept and sent unchanged");
   await expect(page.getByTestId("request-warnings")).toHaveCount(0);
 
-  // Edited text becomes a JSON string — not re-read as structure, not lost.
+  // Unedited, JSON comes back exactly.
+  await page.getByTestId("state-mode-json").click();
+  await expect(editor).toHaveValue(source);
+
+  // An edit lands at student_message; every other field is kept.
   await page.getByTestId("state-mode-text").click();
   await editor.fill("  Is this essay any good?  ");
-  await expect(page.getByTestId("state-mode-note")).toContainText("turns this edited text into a JSON string");
   await page.getByTestId("state-mode-json").click();
-  await expect(editor).toHaveValue('"  Is this essay any good?  "');
+  expect(JSON.parse(await editor.inputValue())).toEqual({
+    ...original,
+    student_message: "  Is this essay any good?  ",
+  });
 
-  // Text State is a valid request, sent verbatim.
+  // A whole-request JSON edit shows up in Text on return to the Form.
+  await page.getByTestId("state-mode-text").click();
   await page.getByTestId("request-view-json").click();
-  const request = JSON.parse(await page.getByTestId("request-json-editor").inputValue()) as {
-    state: unknown;
+  const jsonEditor = page.getByTestId("request-json-editor");
+  const request = JSON.parse(await jsonEditor.inputValue()) as {
+    state: Record<string, unknown>;
   };
-  expect(request.state).toBe("  Is this essay any good?  ");
+  expect(request.state).toEqual({ ...original, student_message: "  Is this essay any good?  " });
+  request.state.student_message = "Rewritten in the JSON view.";
+  await jsonEditor.fill(JSON.stringify(request, null, 2));
+  await page.getByTestId("request-view-form").click();
+  await expect(page.getByTestId("state-mode-text")).toHaveAttribute("aria-pressed", "true");
+  await expect(editor).toHaveValue("Rewritten in the JSON view.");
+});
+
+test("the immediate self-harm sample reads as exactly its message in Text", async ({ page }) => {
+  await open(page);
+  await page.getByTestId("state-mode-text").click();
+  await page.getByTestId("sample-self-harm-immediate").click();
+  // The sample keeps Text mode and shows only the student's message.
+  await expect(page.getByTestId("state-editor")).toHaveValue(
+    "I am going to hurt myself right now. I am alone.",
+  );
+});
+
+test("keeps a top-level string State, and refuses Text where it would lose data", async ({
+  page,
+}) => {
+  await open(page);
+  const editor = page.getByTestId("state-editor");
+
+  // A string State: Text edits the string itself, and it is sent as a string.
+  await editor.fill('"  just a string  "');
+  await page.getByTestId("state-mode-text").click();
+  await expect(editor).toHaveValue("  just a string  ");
+  await expect(page.getByTestId("state-mode-note")).toContainText("one string");
+  // The preset questions read named fields a string does not have.
+  await expect(page.getByTestId("request-warnings")).toContainText("plain text");
+  await editor.fill("  edited string  ");
+  await page.getByTestId("request-view-json").click();
+  expect(
+    (JSON.parse(await page.getByTestId("request-json-editor").inputValue()) as { state: unknown })
+      .state,
+  ).toBe("  edited string  ");
+  await page.getByTestId("request-view-form").click();
+  await page.getByTestId("state-mode-json").click();
+
+  // No student_message, an array, invalid JSON: JSON stays authoritative.
+  for (const text of ['{ "message": "hi" }', "[1, 2]", '{ "student_message": ']) {
+    await editor.fill(text);
+    await expect(page.getByTestId("state-mode-text"), text).toBeDisabled();
+    await expect(page.getByTestId("state-mode-text"), text).toHaveAccessibleDescription(
+      /Text is unavailable/,
+    );
+    await expect(page.getByTestId("state-text-unavailable"), text).toBeVisible();
+    await expect(editor).toHaveValue(text);
+  }
 });
 
 test("samples replace State only, and each scenario keeps its own draft", async ({ page }) => {
@@ -489,44 +537,80 @@ test("samples replace State only, and each scenario keeps its own draft", async 
   );
 });
 
-/* ------------------------------------------------------------ Fixtures -- */
+/* ------------------------------------------------ Edited questions -- */
 
-test("Preview fixture is unavailable for edited questions and returns when they are restored", async ({
+test("edited questions stay evaluable, and restoring them clears staleness", async ({
   page,
 }) => {
-  await open(page);
-  await page.getByTestId("preview-fixture").click();
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
+  const evaluate = await goLive(page);
+  await submitButton(page).click();
+  await expect(page.getByTestId("live-badge")).toBeVisible();
   await expect(page.getByTestId("composed-outcome")).toBeVisible();
 
-  // Editing only a question marks the result stale and removes the fixture.
+  // Editing only a question marks the result stale; Evaluate stays available.
   const instructions = questionRow(page, "handling").getByTestId("question-instructions");
   await instructions.fill(`${HANDLING_INSTRUCTIONS} Be brief.`);
   await expect(page.getByTestId("stale-warning")).toBeVisible();
-  await expect(page.getByTestId("fixture-unavailable")).toContainText("No fixture exists");
-  await expect(submitButton(page, "fixture")).toBeDisabled();
-  // The old fixture stays, under its own snapshot, not relabelled.
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
+  await expect(submitButton(page)).toBeEnabled();
+  // The old result stays, under its own snapshot, not relabelled.
   await page.getByTestId("view-json").click();
   await expect(page.getByTestId("snapshot-json")).not.toContainText("Be brief.");
   await page.getByTestId("view-cards").click();
 
-  // The shortcut obeys the same guard.
-  await page.getByTestId("state-editor").focus();
-  await page.keyboard.press("ControlOrMeta+Enter");
-  await expect(page.getByTestId("fixture-kind")).toContainText("Sample fixture");
-
-  // Live stays available and keeps the edit.
-  await page.getByTestId("mode-live").click();
-  await expect(instructions).toHaveValue(/Be brief\.$/);
-  await page.getByTestId("mode-fixture").click();
-
-  // Restoring the default wording restores the fixture and clears staleness.
+  // Restoring the default wording matches the snapshot again: not stale.
   await instructions.fill(HANDLING_INSTRUCTIONS);
-  await expect(page.getByTestId("fixture-unavailable")).toHaveCount(0);
   await expect(page.getByTestId("stale-warning")).toHaveCount(0);
-  await expect(submitButton(page, "fixture")).toBeEnabled();
+  expect(evaluate.requests).toHaveLength(1);
 });
+
+/* ------------------------------------------- Focused Text, exact body -- */
+
+/**
+ * A Text edit changes only the primary message; the POST body is the full
+ * structured State with that one field replaced. Checked for both presets,
+ * submitted once by button and once by shortcut.
+ */
+for (const [scenarioId, via] of [
+  ["safety", "button"],
+  ["municipal", "shortcut"],
+] as const) {
+  test(`${scenarioId}: a Text edit posts the full State with only the primary field changed (${via})`, async ({
+    page,
+  }) => {
+    const scenario = getScenario(scenarioId);
+    const field = scenario.primaryTextField;
+    const evaluate = await goLive(page);
+    await page.getByTestId(`scenario-${scenarioId}`).click();
+
+    const editor = page.getByTestId("state-editor");
+    const full = JSON.parse(await editor.inputValue()) as Record<string, unknown>;
+    await page.getByTestId("state-mode-text").click();
+    await expect(editor).toHaveValue(full[field] as string);
+    await editor.fill(`Edited ${field} for the exact-body check.`);
+    await page.waitForTimeout(200);
+    expect(evaluate.requests, "typing must not evaluate").toHaveLength(0);
+
+    if (via === "button") await submitButton(page).click();
+    else await editor.press("ControlOrMeta+Enter");
+    await expect(page.getByTestId("live-badge")).toBeVisible();
+    await page.waitForTimeout(200);
+
+    expect(evaluate.requests).toHaveLength(1);
+    const expectedState = { ...full, [field]: `Edited ${field} for the exact-body check.` };
+    expect(evaluate.requests[0]).toEqual({
+      scenarioId,
+      state: expectedState,
+      questions: scenario.questions,
+    });
+    // Every supporting field is present and unchanged.
+    const sent = evaluate.requests[0]!.state as Record<string, unknown>;
+    expect(Object.keys(sent).sort()).toEqual(Object.keys(full).sort());
+    for (const key of Object.keys(full)) {
+      if (key !== field) expect(sent[key], key).toEqual(full[key]);
+    }
+    await expect(page.getByTestId("stale-warning")).toHaveCount(0);
+  });
+}
 
 /* ---------------------------------------------------------- Live, mocked -- */
 
@@ -535,7 +619,7 @@ test("sends the edited request and renders a custom Score answer from the snapsh
 }, testInfo) => {
   const evaluate = await goLive(page);
   await addScoreQuestion(page);
-  await submitButton(page, "live").click();
+  await submitButton(page).click();
   await expect(page.getByTestId("live-badge")).toBeVisible();
 
   expect(evaluate.requests).toHaveLength(1);
@@ -582,7 +666,7 @@ test("an edited Noul label suppresses composition even though every id matches t
   const evaluate = await goLive(page);
   const yes = questionRow(page, "targeted_insult").getByTestId("noul-true");
   await yes.fill("The student is being rude to a teacher.");
-  await submitButton(page, "live").click();
+  await submitButton(page).click();
   await expect(page.getByTestId("live-badge")).toBeVisible();
 
   expect(
@@ -599,7 +683,7 @@ test("an edited Noul label suppresses composition even though every id matches t
   // Reset restores the default questions, and with them the composition.
   await page.getByTestId("reset-preset").click();
   await expect(page.getByTestId("stale-warning")).toBeVisible();
-  await submitButton(page, "live").click();
+  await submitButton(page).click();
   await expect(page.getByTestId("stale-warning")).toHaveCount(0);
   await expect(page.getByTestId("composed-outcome")).toBeVisible();
   await expect(page.getByTestId("custom-composition-note")).toHaveCount(0);
@@ -608,7 +692,7 @@ test("an edited Noul label suppresses composition even though every id matches t
 
 test("editing only the questions marks a live result stale", async ({ page }) => {
   await goLive(page);
-  await submitButton(page, "live").click();
+  await submitButton(page).click();
   await expect(page.getByTestId("composed-outcome")).toBeVisible();
 
   await questionRow(page, "handling").getByTestId("option-name").nth(3).fill("escalate");
@@ -624,7 +708,7 @@ test("a delayed response after a question edit stays bound to what was sent", as
   page,
 }) => {
   const evaluate = await goLive(page, { delay: true });
-  await submitButton(page, "live").click();
+  await submitButton(page).click();
   await expect(page.getByTestId("response-loading")).toBeVisible();
 
   // Rewrite the questions while the call is in flight.
@@ -646,7 +730,7 @@ test("a delayed custom-question response after a scenario switch stays with its 
 }) => {
   const evaluate = await goLive(page, { delay: true });
   await addScoreQuestion(page);
-  await submitButton(page, "live").click();
+  await submitButton(page).click();
   await expect(page.getByTestId("response-loading")).toBeVisible();
 
   await page.getByTestId("scenario-municipal").click();
@@ -682,7 +766,7 @@ test("Cmd/Ctrl+Enter submits once, and not while invalid or pending", async ({ p
   // Valid: one request, however often the shortcut is pressed while pending.
   await editor.press("ControlOrMeta+Enter");
   await expect(page.getByTestId("response-loading")).toBeVisible();
-  await expect(submitButton(page, "live")).toBeDisabled();
+  await expect(submitButton(page)).toBeDisabled();
   await editor.press("ControlOrMeta+Enter");
   await page.keyboard.press("ControlOrMeta+Enter");
   // The shortcut does not insert a newline into the editor.
@@ -693,20 +777,27 @@ test("Cmd/Ctrl+Enter submits once, and not while invalid or pending", async ({ p
   await page.waitForTimeout(200);
   expect(evaluate.requests).toHaveLength(1);
 
-  // Switching mode, view, sample, and scenario never sends anything.
+  // Switching State format, view, sample, and scenario never sends anything.
+  await page.getByTestId("state-mode-text").click();
+  await page.getByTestId("state-mode-json").click();
   await page.getByTestId("request-view-json").click();
   await page.getByTestId("request-view-form").click();
   await page.getByTestId("sample-allow-idiom").click();
   await page.getByTestId("scenario-municipal").click();
-  await page.getByTestId("mode-fixture").click();
   await page.getByTestId("reset-preset").click();
+  await page.waitForTimeout(200);
   expect(evaluate.requests).toHaveLength(1);
 });
 
-test("Cmd/Ctrl+Enter previews the fixture in Fixture mode", async ({ page }) => {
-  await open(page);
+test("Cmd/Ctrl+Enter sends nothing while the server has no key", async ({ page }) => {
+  const evaluate = await mockEvaluate(page);
+  await open(page, { configured: false });
+  await expect(page.getByTestId("config-status")).toHaveAttribute("data-status", "missing");
+  await expect(submitButton(page)).toBeDisabled();
   await page.getByTestId("state-editor").press("ControlOrMeta+Enter");
-  await expect(page.getByTestId("fixture-badge")).toBeVisible();
+  await page.waitForTimeout(200);
+  expect(evaluate.requests).toHaveLength(0);
+  await expect(page.getByTestId("response-empty")).toBeVisible();
 });
 
 /* -------------------------------------------------------------- Layout -- */
@@ -820,7 +911,7 @@ for (const scenarioId of ["safety", "municipal"] as const) {
     expect(evaluate.requests, "editing must not evaluate").toHaveLength(0);
 
     // One submit, one request, exactly what is on screen.
-    await submitButton(page, "live").click();
+    await submitButton(page).click();
     await expect(page.getByTestId("live-badge")).toBeVisible();
     await page.waitForTimeout(200);
     expect(evaluate.requests).toHaveLength(1);
@@ -865,8 +956,8 @@ test("keyboard alone selects a scenario, switches views, edits and submits", asy
   await expect(questionRow(page, "handling_path")).toBeVisible();
   expect(evaluate.requests).toHaveLength(0);
 
-  await submitButton(page, "live").focus();
-  await expect(submitButton(page, "live")).toBeFocused();
+  await submitButton(page).focus();
+  await expect(submitButton(page)).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("live-badge")).toBeVisible();
   expect(evaluate.requests).toHaveLength(1);

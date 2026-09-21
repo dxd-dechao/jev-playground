@@ -4,18 +4,16 @@
  * Panel 3 of 3: the response.
  *
  * Invariants this panel is responsible for:
- *  - Every result states its own source. A fixture shows the "Fixture data — no
- *    model call" badge; a live result shows a live badge and its measurements.
- *    The badge appears in Cards *and* JSON, and the source is carried on the
- *    result rather than inferred from what happens to be in view.
+ *  - Every result is a live Jev response and says so: the live badge appears in
+ *    Cards *and* JSON, with the model and measurements it reported. Nothing
+ *    hand-written is ever shown in its place, including after a failure.
  *  - Raw answers are shown separately from the composed application outcome,
  *    which is explicitly tagged as code, not a model judgment.
- *  - Fixture measurement fields read "Unavailable". Nothing was measured, so
- *    nothing may look measured. Live fields show only what was really measured
- *    or returned; cost is never shown, because the API documents no cost field.
+ *  - Measurement fields show only what was really measured or returned; cost
+ *    is never shown, because the API documents no cost field.
  *  - A result belongs to the request snapshot it was produced from. Editing
  *    State or questions marks it stale; it is never silently re-attached to new
- *    input, and a live result is never replaced by a fixture or vice versa.
+ *    input.
  *  - Answer order, option labels, and the composed outcome come from that
  *    snapshot. Preset labels and preset composition apply only when the
  *    snapshot asked exactly the preset's default questions; otherwise the raw
@@ -23,12 +21,7 @@
  *    applied."
  */
 
-import type { FixtureResult } from "@/lib/fixtures";
-import {
-  FIXTURE_BADGE_TEXT,
-  FIXTURE_EXPLANATION,
-  questionsMatchPreset,
-} from "@/lib/fixtures";
+import { questionsMatchPreset } from "@/lib/fixtures";
 import type { Scenario } from "@/lib/scenarios";
 import {
   MUNICIPAL_DISPOSITION_LABELS,
@@ -57,10 +50,7 @@ import {
   ScoreDistribution,
 } from "./probability-bars";
 
-/** Which button produced a result. Carried, never guessed. */
-export type PlaygroundMode = "fixture" | "live";
-
-/** What a result and its request have in common, whatever the source. */
+/** What a result and a failure have in common: the request they belong to. */
 interface ResultBase {
   scenarioId: Scenario["id"];
   /**
@@ -73,16 +63,11 @@ interface ResultBase {
   questionOrder: string[];
 }
 
-/**
- * A displayed result.
- *
- * The union is the point: a live response is not a fixture with extra fields,
- * and nothing can read `result.fixture` off a real model answer. Adding a source
- * would force every reader to handle it.
- */
-export type PlaygroundResult =
-  | (ResultBase & { source: "fixture"; fixture: FixtureResult })
-  | (ResultBase & { source: "live"; live: LiveEvaluationPayload });
+/** A displayed live result, bound to the request it answers. */
+export interface PlaygroundResult extends ResultBase {
+  source: "live";
+  live: LiveEvaluationPayload;
+}
 
 /** A failed live submission, bound to the request that failed. */
 export interface PlaygroundError extends ResultBase {
@@ -93,11 +78,9 @@ export interface PlaygroundError extends ResultBase {
 
 export type ResponseView = "cards" | "json";
 
-/** The answers to render, whichever source they came from. */
+/** The answers to render. */
 export function resultAnswers(result: PlaygroundResult): Answers {
-  return result.source === "fixture"
-    ? result.fixture.response.answers
-    : result.live.response.answers;
+  return result.live.response.answers;
 }
 
 /**
@@ -113,19 +96,7 @@ function answerOrder(result: PlaygroundResult): string[] {
 
 /** The response envelope to show in the JSON view. */
 function resultResponse(result: PlaygroundResult): EvaluationResponse {
-  return result.source === "fixture" ? result.fixture.response : result.live.response;
-}
-
-function FixtureBadge() {
-  return (
-    <span
-      data-testid="fixture-badge"
-      className="inline-flex items-center gap-1.5 border-2 border-[var(--color-warn)] bg-[var(--color-warn-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-ink)]"
-    >
-      <span aria-hidden="true">●</span>
-      {FIXTURE_BADGE_TEXT}
-    </span>
-  );
+  return result.live.response;
 }
 
 export const LIVE_BADGE_TEXT = "Live Jev response — real model call";
@@ -142,11 +113,6 @@ function LiveBadge() {
   );
 }
 
-/** The one badge that belongs to this result's source. */
-function SourceBadge({ result }: { result: PlaygroundResult }) {
-  return result.source === "fixture" ? <FixtureBadge /> : <LiveBadge />;
-}
-
 function MeasurementRow({ field, value }: { field: string; value: string }) {
   return (
     <div className="flex justify-between gap-2">
@@ -159,8 +125,7 @@ function MeasurementRow({ field, value }: { field: string; value: string }) {
 /**
  * Measurements.
  *
- * Fixture mode: every field is "Unavailable", because no call happened.
- * Live mode: the duration was measured around the call, the resolved model is
+ * The duration was measured around the call, the resolved model is
  * the one TypeSafe reported, and each token count appears only if the response
  * carried that count — separately, so a response reporting one of the two shows
  * the real number beside an honest "Unavailable" instead of a zero. Cost is
@@ -168,8 +133,8 @@ function MeasurementRow({ field, value }: { field: string; value: string }) {
  * estimate here would be a guess wearing a measurement's clothes.
  */
 function Measurement({ result }: { result: PlaygroundResult }) {
-  const live = result.source === "live" ? result.live : null;
-  const usage = live?.response.usage;
+  const live = result.live;
+  const usage = live.response.usage;
   const inputTokens = usage?.input_tokens;
   const outputTokens = usage?.output_tokens;
 
@@ -184,11 +149,11 @@ function Measurement({ result }: { result: PlaygroundResult }) {
       >
         <MeasurementRow
           field="Requested model"
-          value={live ? live.requestedModel : "Unavailable"}
+          value={live.requestedModel}
         />
         <MeasurementRow
           field="Resolved model"
-          value={live ? live.response.model : "Unavailable"}
+          value={live.response.model}
         />
         <MeasurementRow
           field="Input tokens"
@@ -200,26 +165,20 @@ function Measurement({ result }: { result: PlaygroundResult }) {
         />
         <MeasurementRow
           field="Evaluation call duration"
-          value={live ? `${live.durationMs} ms` : "Unavailable"}
+          value={`${live.durationMs} ms`}
         />
         <MeasurementRow field="Cost" value="Unavailable" />
       </dl>
       <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-        {live ? (
-          <>
-            Duration is wall time measured around the evaluation call only, so it
-            includes network time and excludes rendering. Cost is unavailable
-            because the API documents no cost field; nothing here is an estimate.
-            {inputTokens === undefined && outputTokens === undefined
-              ? " This response carried no token counts, so none are shown."
-              : inputTokens === undefined || outputTokens === undefined
-                ? " This response reported only one of the two token counts. " +
-                  "The other is unavailable, not zero."
-                : null}
-          </>
-        ) : (
-          "No request was sent, so there is nothing to measure."
-        )}
+        Duration is wall time measured around the evaluation call only, so it
+        includes network time and excludes rendering. Cost is unavailable
+        because the API documents no cost field; nothing here is an estimate.
+        {inputTokens === undefined && outputTokens === undefined
+          ? " This response carried no token counts, so none are shown."
+          : inputTokens === undefined || outputTokens === undefined
+            ? " This response reported only one of the two token counts. " +
+              "The other is unavailable, not zero."
+            : null}
       </p>
     </div>
   );
@@ -369,7 +328,6 @@ function MunicipalComposition({ result }: { result: PlaygroundResult }) {
 
 export function ResponsePanel({
   scenario,
-  mode,
   result,
   error,
   isStale,
@@ -379,14 +337,12 @@ export function ResponsePanel({
   onViewChange,
 }: {
   scenario: Scenario;
-  /** The mode whose slot is being displayed. */
-  mode: PlaygroundMode;
   /**
-   * Always the result for this exact `scenario` and `mode`, or null. The parent
-   * keys results by both, so no switch can show another pair's answers.
+   * Always the result for this exact `scenario`, or null. The parent keys
+   * results by scenario, so no switch can show another scenario's answers.
    */
   result: PlaygroundResult | null;
-  /** A live failure for this scenario. Kept visible; never replaced by a fixture. */
+  /** A live failure for this scenario. Kept visible; nothing is substituted for it. */
   error: PlaygroundError | null;
   isStale: boolean;
   isErrorStale: boolean;
@@ -462,13 +418,12 @@ export function ResponsePanel({
             >
               {error.code}
             </p>
-            <p className="mt-1.5 text-xs text-[var(--color-ink-soft)]">
-              No fixture was substituted. A failed model call has no answer, and
-              showing a hand-written one here would misrepresent it.
-              {isErrorStale
-                ? " The request has since been edited, so this failure belongs to the earlier request."
-                : null}
-            </p>
+            {isErrorStale ? (
+              <p className="mt-1.5 text-xs text-[var(--color-ink-soft)]">
+                The request has since been edited, so this failure belongs to the
+                earlier request.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -477,44 +432,25 @@ export function ResponsePanel({
             data-testid="response-empty"
             className="mt-4 border-2 border-dashed border-[var(--color-line-soft)] p-4 text-sm text-[var(--color-ink-soft)]"
           >
-            {mode === "fixture"
-              ? "No fixture shown yet. Choose a sample or edit the State, then press Preview fixture."
-              : "No live result yet. Press Evaluate with Jev to make one real model call with the State on the left."}
+            No result yet. Press Evaluate with Jev to evaluate this request.
           </p>
         ) : (
           <>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <SourceBadge result={result} />
-              {/* The source in plain words, present in Cards and JSON alike. */}
+              <LiveBadge />
               <span
-                data-testid="result-source"
-                className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-soft)]"
-              >
-                {result.source === "fixture" ? "Source: fixture" : "Source: live"}
-              </span>
-              <span
-                data-testid="fixture-kind"
+                data-testid="result-model"
                 className="text-[11px] font-medium text-[var(--color-ink-soft)]"
               >
-                {result.source === "fixture"
-                  ? result.fixture.label
-                  : `Model: ${result.live.response.model}`}
+                {`Model: ${result.live.response.model}`}
               </span>
             </div>
 
             <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-              {result.source === "fixture" ? (
-                <>
-                  {result.fixture.disclaimer} {FIXTURE_EXPLANATION}
-                </>
-              ) : (
-                <>
-                  These answers came from a real TypeSafe call made when you pressed
-                  Evaluate with Jev. They are this model&rsquo;s judgment of the
-                  State you submitted, not a verdict on the student or the report,
-                  and one response is not evidence of accuracy.
-                </>
-              )}
+              These answers came from a real TypeSafe call made when you pressed
+              Evaluate with Jev. They are this model&rsquo;s judgment of the
+              State you submitted, not a verdict on the student or the report,
+              and one response is not evidence of accuracy.
             </p>
 
             {isStale ? (
@@ -526,9 +462,7 @@ export function ResponsePanel({
                 The request (State or questions) has been edited since this
                 result was produced. What you see below belongs to the earlier
                 request snapshot, not to the request in the editor.{" "}
-                {result.source === "fixture"
-                  ? "Press Preview fixture again."
-                  : "Press Evaluate with Jev again to spend another call on the new request."}
+                Press Evaluate with Jev again to spend another call on the new request.
               </p>
             ) : null}
 
@@ -559,7 +493,7 @@ export function ResponsePanel({
                   </h3>
                   <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
                     Every answer is preserved with its full distribution, exactly
-                    as {result.source === "fixture" ? "written" : "returned"}
+                    as returned
                     {presetQuestions
                       ? ", kept separate from the composed outcome above."
                       : ", in the order the questions were submitted."}
@@ -587,25 +521,14 @@ export function ResponsePanel({
             ) : (
               <div className="mt-4">
                 <h3 className="text-sm font-semibold">
-                  {result.source === "fixture"
-                    ? "Fixture response JSON"
-                    : "Live response JSON"}
+                  Live response JSON
                 </h3>
                 <p className="mt-1 text-xs text-[var(--color-ink-soft)]">
-                  {result.source === "fixture" ? (
-                    <>
-                      <code>model</code> and <code>usage</code> are absent because
-                      no call was made. The cards above render exactly these values.
-                    </>
-                  ) : (
-                    <>
-                      The response as it was received, after being checked against
-                      the questions that were submitted. <code>usage</code> and each
-                      token count inside it appear only if TypeSafe returned them,
-                      so an absent count is missing here rather than zero. The cards
-                      above render exactly these values.
-                    </>
-                  )}
+                  The response as it was received, after being checked against
+                  the questions that were submitted. <code>usage</code> and each
+                  token count inside it appear only if TypeSafe returned them, so
+                  an absent count is missing here rather than zero. The cards
+                  above render exactly these values.
                 </p>
                 <pre
                   data-testid="response-json"
@@ -614,27 +537,23 @@ export function ResponsePanel({
                   {JSON.stringify(resultResponse(result), null, 2)}
                 </pre>
 
-                {result.source === "live" ? (
-                  <dl
-                    data-testid="json-measurement"
-                    className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs"
-                  >
-                    <MeasurementRow
-                      field="Requested model"
-                      value={result.live.requestedModel}
-                    />
-                    <MeasurementRow
-                      field="Evaluation call duration"
-                      value={`${result.live.durationMs} ms`}
-                    />
-                    <MeasurementRow field="Cost" value="Unavailable" />
-                  </dl>
-                ) : null}
+                <dl
+                  data-testid="json-measurement"
+                  className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs"
+                >
+                  <MeasurementRow
+                    field="Requested model"
+                    value={result.live.requestedModel}
+                  />
+                  <MeasurementRow
+                    field="Evaluation call duration"
+                    value={`${result.live.durationMs} ms`}
+                  />
+                  <MeasurementRow field="Cost" value="Unavailable" />
+                </dl>
 
                 <h3 className="mt-4 text-sm font-semibold">
-                  {result.source === "fixture"
-                    ? "Request snapshot this fixture belongs to"
-                    : "Request snapshot that was sent"}
+                  Request snapshot that was sent
                 </h3>
                 <pre
                   data-testid="snapshot-json"
