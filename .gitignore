@@ -34,3 +34,6 @@ next-env.d.ts.bak
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# offline evaluation output (reports, predictions, prepared requests)
+/evaluation-output/

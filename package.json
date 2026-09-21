@@ -14,7 +14,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "eval:prepare": "vite-node evaluation/main.ts prepare",
+    "eval:mock-run": "vite-node evaluation/main.ts mock-run",
+    "eval:score": "vite-node evaluation/main.ts score"
   },
   "dependencies": {
     "@typesafe-ai/sdk": "0.6.0",
