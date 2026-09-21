@@ -217,4 +217,22 @@ body {
   .disclosure[open] > summary::before {
     content: "−";
   }
+
+  /* First-Evaluate password overlay. Native dialog; cream/hard-card language. */
+  .password-dialog {
+    position: fixed;
+    inset: 0;
+    margin: auto;
+    width: min(22rem, calc(100vw - 2rem));
+    height: fit-content;
+    max-width: 100%;
+    border: 2px solid var(--color-line);
+    background: var(--color-panel);
+    color: var(--color-ink);
+    box-shadow: 5px 5px 0 var(--color-line);
+    padding: 1rem;
+  }
+  .password-dialog::backdrop {
+    background: oklch(18% 0.01 260 / 0.35);
+  }
 }

@@ -26,6 +26,8 @@
  *    sample, resetting, switching scenario, State format, or view, and checking
  *    configuration never call the model.
  *  - A live failure stays a failure. Nothing is substituted for it.
+ *  - A locked server asks for the playground password on the first Evaluate
+ *    press. A 401 from evaluate re-prompts; it is not shown as a Jev error.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -56,7 +58,13 @@ import type { ScenarioId } from "@/lib/scenarios";
 import { DEFAULT_SCENARIO_ID, SCENARIOS, getSample, getScenario } from "@/lib/scenarios";
 import type { ValidationResult } from "@/lib/schemas";
 import { presetStateIssues, validatePlaygroundRequest } from "@/lib/schemas";
-import type { ConfigStatus, EvaluationRequest, LiveEvaluationPayload } from "@/lib/types";
+import type {
+  ConfigStatus,
+  EvaluationRequest,
+  LiveEvaluationPayload,
+  PlaygroundAccess,
+} from "@/lib/types";
+import { playgroundAccessFromConfig } from "@/lib/types";
 
 /** One live result slot per scenario. */
 type ResultSlots = Record<ScenarioId, PlaygroundResult | null>;
@@ -78,6 +86,8 @@ const UNREADABLE_ERROR = {
     "The evaluation endpoint returned something this page could not read, so no " +
     "answer is shown. Nothing was substituted for it.",
 };
+
+const WRONG_PASSWORD_MESSAGE = "That password was not accepted. Try again.";
 
 /** The shape we require of our own route's success payload before rendering it. */
 function isLivePayload(value: unknown): value is LiveEvaluationPayload {
@@ -115,6 +125,10 @@ export default function PlaygroundPage() {
     perScenario(() => false),
   );
   const [configStatus, setConfigStatus] = useState<ConfigStatus>("unknown");
+  const [access, setAccess] = useState<PlaygroundAccess>("open");
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
   const [view, setView] = useState<ResponseView>("cards");
 
   /**
@@ -128,6 +142,7 @@ export default function PlaygroundPage() {
    * double press), so this ref is the real one-call-at-a-time guard.
    */
   const inFlight = useRef<Record<ScenarioId, boolean>>(perScenario(() => false));
+  const unlockingRef = useRef(false);
 
   const scenario = getScenario(activeScenarioId);
   const draft = drafts[activeScenarioId];
@@ -190,13 +205,13 @@ export default function PlaygroundPage() {
   const isErrorStale = error !== null && isOutdated(error.requestSnapshot, reading.request);
   const isPending = pending[activeScenarioId];
 
-  const canSubmit = isRequestValid && configStatus === "configured" && !isPending;
+  const canSubmit = isRequestValid && configStatus === "configured" && !isPending && !unlocking;
 
   /**
    * Ask the server whether evaluation is possible at all. This is a plain GET
-   * that returns one boolean; it makes no model call and costs nothing, so it
-   * is safe on mount and on demand. Until it answers "configured", Evaluate
-   * stays disabled.
+   * that returns key presence and password-gate state; it makes no model call
+   * and costs nothing, so it is safe on mount and on demand. Until it answers
+   * "configured", Evaluate stays disabled. Missing `access` is treated as open.
    */
   const checkConfig = useCallback(async () => {
     setConfigStatus("unknown");
@@ -211,6 +226,7 @@ export default function PlaygroundPage() {
         typeof payload === "object" &&
         payload !== null &&
         (payload as { configured?: unknown }).configured === true;
+      setAccess(playgroundAccessFromConfig(payload));
       setConfigStatus(configured ? "configured" : "missing");
     } catch {
       // The failure is recorded and shown beside the disabled button; nothing
@@ -328,6 +344,14 @@ export default function PlaygroundPage() {
       // it answers.
       if (tokens.current[scenarioId] !== token) return;
 
+      if (response.status === 401) {
+        // Expired or missing cookie: re-prompt. This is not a Jev/model failure.
+        setAccess("required");
+        setPasswordError(null);
+        setPasswordOpen(true);
+        return;
+      }
+
       if (response.ok && isLivePayload(payload)) {
         const live: PlaygroundResult = {
           source: "live",
@@ -389,10 +413,70 @@ export default function PlaygroundPage() {
     }
   }, [configStatus, isRequestValid, pending, reading, scenario.id]);
 
+  const submitPassword = useCallback(
+    async (password: string) => {
+      if (unlockingRef.current || isPending) return;
+      unlockingRef.current = true;
+      setUnlocking(true);
+      setPasswordError(null);
+      try {
+        const response = await fetch("/api/unlock", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ password }),
+        });
+        let payload: unknown = null;
+        try {
+          payload = (await response.json()) as unknown;
+        } catch {
+          payload = null;
+        }
+        if (!response.ok) {
+          if (response.status === 401) {
+            setPasswordError(WRONG_PASSWORD_MESSAGE);
+            return;
+          }
+          const message =
+            typeof payload === "object" &&
+            payload !== null &&
+            typeof (payload as { error?: { message?: unknown } }).error === "object" &&
+            (payload as { error: { message?: unknown } }).error !== null &&
+            typeof (payload as { error: { message?: unknown } }).error.message === "string"
+              ? (payload as { error: { message: string } }).error.message
+              : WRONG_PASSWORD_MESSAGE;
+          setPasswordError(message);
+          return;
+        }
+        setAccess("granted");
+        setPasswordOpen(false);
+        setPasswordError(null);
+        void evaluateLive();
+      } catch {
+        setPasswordError(WRONG_PASSWORD_MESSAGE);
+      } finally {
+        unlockingRef.current = false;
+        setUnlocking(false);
+      }
+    },
+    [evaluateLive, isPending],
+  );
+
+  const cancelPassword = useCallback(() => {
+    if (unlockingRef.current) return;
+    setPasswordOpen(false);
+    setPasswordError(null);
+  }, []);
+
   const submit = useCallback(() => {
     if (!canSubmit) return;
+    if (access === "required") {
+      setPasswordError(null);
+      setPasswordOpen(true);
+      return;
+    }
     void evaluateLive();
-  }, [canSubmit, evaluateLive]);
+  }, [access, canSubmit, evaluateLive]);
 
   /**
    * Cmd/Ctrl+Enter submits, with every guard the button
@@ -401,9 +485,13 @@ export default function PlaygroundPage() {
    * submission, not many.
    */
   const submitRef = useRef(submit);
+  const passwordOpenRef = useRef(passwordOpen);
   useEffect(() => {
     submitRef.current = submit;
   }, [submit]);
+  useEffect(() => {
+    passwordOpenRef.current = passwordOpen;
+  }, [passwordOpen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -411,6 +499,7 @@ export default function PlaygroundPage() {
       if (event.isComposing) return;
       event.preventDefault();
       if (event.repeat) return;
+      if (passwordOpenRef.current) return;
       submitRef.current();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -464,6 +553,11 @@ export default function PlaygroundPage() {
             isPending={isPending}
             canSubmit={canSubmit}
             onSubmit={submit}
+            passwordOpen={passwordOpen}
+            passwordError={passwordError}
+            passwordUnlocking={unlocking}
+            onPasswordSubmit={(password) => void submitPassword(password)}
+            onPasswordCancel={cancelPassword}
           />
         </div>
 

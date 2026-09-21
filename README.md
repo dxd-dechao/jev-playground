@@ -14,6 +14,10 @@ works, but Evaluate is disabled with a short explanation and a **Re-check config
 button. (Before JEV-08 there was also an offline Fixture mode; it has been removed from the
 page. The hand-written fixtures remain in `lib/fixtures.ts` as offline test infrastructure.)
 
+A hosted server can also set a shared playground password so Evaluate is not an open
+spend of TypeSafe credits. See [Deploying to Railway](#deploying-to-railway). Browsing,
+editing State and questions, and loading samples stay public.
+
 ## What this is not
 
 - **Not** a measurement of Jev quality. A working integration says the API returns typed
@@ -73,11 +77,20 @@ written into an error message or log line.
 
 ### "Configured" is not "verified"
 
-`GET /api/config` returns exactly `{ "configured": true | false }`. `true` means a non-empty
-`TYPESAFE_API_KEY` is present in the server's environment — **not** that it is valid, funded,
-accepted, or within quota. Nothing but a real call can establish that, and this check
-deliberately does not make one. So a configured server can still fail on the first
-evaluation with an authentication or rate-limit error; that is expected, not a bug.
+`GET /api/config` returns `{ "configured": true | false, "access": "open" | "required" | "granted" }`.
+`configured: true` means a non-empty `TYPESAFE_API_KEY` is present in the server's
+environment — **not** that it is valid, funded, accepted, or within quota. Nothing
+but a real call can establish that, and this check deliberately does not make one.
+`access` is independent: `open` when no playground password is set (the local
+default), `required` when a password is set and this browser has no valid session
+cookie, `granted` when the cookie is valid. The field never includes the password,
+a hash, a cookie value, or key material. Mocked tests that omit `access` are
+treated as `open`.
+
+So a configured server can still fail on the first evaluation with an authentication
+or rate-limit error; that is expected, not a bug. A hosted server with
+`PLAYGROUND_PASSWORD` set still lets anyone browse and edit; only Evaluate asks
+for the shared password, and only the first time in that browser.
 
 While the check is running, or if it fails, Evaluate is disabled. A short status line
 beside the button says why, with a **Re-check configuration** button when there is no key
@@ -120,6 +133,8 @@ own request snapshot, labelled stale if the State or questions have since change
 | Situation | Status | Code |
 | --- | --- | --- |
 | No key on the server | 503 | `not_configured` |
+| Playground password required and this request has no valid cookie | 401 | `unauthorized` |
+| Password set but `PLAYGROUND_SESSION_SECRET` missing | 503 | `gate_misconfigured` |
 | TypeSafe rejected the credentials | 502 | `upstream_auth` |
 | Rate-limited | 429 | `upstream_rate_limit` |
 | No response within 30 s | 504 | `upstream_timeout` |
@@ -153,8 +168,10 @@ live commands (`eval:smoke`, `eval:live`) spend money and are never part of a ch
   `playwright.config.ts` starts the server under test with the TypeSafe variables blanked, so
   an unmocked request could only produce a 503.
 - One test greps the emitted client bundle in `.next/static` for the fake key, for
-  `TYPESAFE_API_KEY`, for `api.typesafe.ai`, and for the SDK itself, confirming that key and
-  transport stay on the server. Run `npm run build` before `npm run test` for it to execute.
+  `TYPESAFE_API_KEY`, for `api.typesafe.ai`, for the SDK itself, and for
+  `process.env.PLAYGROUND` / playground password values, confirming that key,
+  session secret, and transport stay on the server. Run `npm run build` before
+  `npm run test` for it to execute.
 - The live-path tests drive the same guards with fake evaluators and a fake `fetch`, and assert
   the network was never touched. One test asserts that `evaluation/live.ts` is the only module
   under `evaluation/` that imports the SDK or the transport, and that nothing imports it
@@ -192,7 +209,44 @@ npx playwright install chromium
 The suite starts its own production server on `127.0.0.1:3100`, so run `npm run build`
 first. It also writes layout evidence to `screenshots/` (gitignored): full-page
 screenshots per viewport project, including the request editor's Form, invalid-JSON, and
-custom-question views.
+custom-question views. Playwright starts that server with TypeSafe and playground-password
+variables blanked, so an unmocked Evaluate can only 503.
+
+## Deploying to Railway
+
+This is a Next.js app. Create a Railway service from this GitHub repository. Do not
+put real secrets in the repo.
+
+- **Node:** 20 or newer.
+- **Build:** `npm ci && npm run build` (or Nixpacks' default for a Node app).
+- **Start:** `npm run start -- --hostname 0.0.0.0`. Railway provides `PORT`;
+  `next start` already honours it. Binding `0.0.0.0` is required so the proxy can reach
+  the process.
+- **Healthcheck:** `GET /`.
+
+Set these variables on the service. Mark the two secrets as sensitive:
+
+| Variable | Required | Role |
+| --- | --- | --- |
+| `TYPESAFE_API_KEY` | To Evaluate | TypeSafe key. Visitors never type this. |
+| `PLAYGROUND_PASSWORD` | To gate Evaluate | Shared password people type. Blank/unset = gate off. Both sides are trimmed once. |
+| `PLAYGROUND_SESSION_SECRET` | When the password is set | Long random HMAC key for the `jev_access` cookie. Do not derive it from the password. |
+
+Browsing, editing State/questions, loading samples, Reset, and the configuration
+re-check stay public. Evaluate is gated when `PLAYGROUND_PASSWORD` is set: the first
+press in a browser asks for the password; later presses use an HttpOnly cookie for
+seven days. This is a shared-secret speed bump, **not** user accounts. Anyone who
+knows the password can spend TypeSafe credits.
+
+Unlock failures are rate-limited in memory (five per client IP per 15 minutes, using
+the first `x-forwarded-for` hop on Railway). That budget is per replica and is not a
+security boundary.
+
+`railway.toml` in this repo matches the build/start/healthcheck above. It does not
+contain a service token. This task does not create a Railway project or deploy.
+
+JEV-06's live evaluation budget is exhausted. Deploying the playground makes no
+provider call by itself; only an explicit Evaluate after unlock does.
 
 ## How it works
 
@@ -402,12 +456,14 @@ date recorded in the file header. It contains intentional overlap between agenci
 
 ```
 app/                    App Router shell, global tokens, client page holding all state
-app/api/config/         GET { configured: boolean } — presence of a key, nothing more
+app/api/config/         GET { configured, access } — key presence + password-gate state
+app/api/unlock/         POST { password } — HttpOnly session cookie; never calls TypeSafe
 app/api/evaluate/       POST { scenarioId, state, questions } — the only route that can spend money
 components/             scenario-picker, request-editor, question-editor, response-panel,
                         probability-bars
 lib/evaluation.ts       server-only SDK adapter: lazy client, no retries, 30 s abort
 lib/evaluation-response.ts  runtime check of a response against the submitted questions
+lib/playground-gate.ts  server-only password compare, signed cookie, unlock rate limit
 lib/request-draft.ts    editable drafts: Form rows, State Text/JSON rule, raw JSON parsing
 lib/                    types, schemas (Zod), scenarios + samples, fixtures,
                         safety-guardrails, municipal-routing, agency-definitions
@@ -415,7 +471,7 @@ evaluation/             evaluation tooling: shared contract, CLI, municipal and 
                         suites. Offline by default; live.ts and smoke.ts are the
                         only paid path and are opt-in (see evaluation/README.md)
 tests/                  decisions, request-validation, request-draft, evaluation,
-                        evaluation-route, evaluation-shared, evaluation-cli,
+                        evaluation-route, playground-gate, evaluation-shared, evaluation-cli,
                         municipal-evaluation, safety-evaluation (vitest); playground.spec.ts,
                         live-playground.spec.ts, request-editor.spec.ts (Playwright)
 ```

@@ -37,6 +37,10 @@ import {
   RateLimitError,
   TypeSafeClient,
 } from "@typesafe-ai/sdk";
+import {
+  GATE_MISCONFIGURED_MESSAGE,
+  UNAUTHORIZED_MESSAGE,
+} from "./playground-gate";
 import type { EvaluationErrorCode, Questions, State } from "./types";
 
 if (typeof window !== "undefined") {
@@ -165,6 +169,8 @@ export const ERROR_MESSAGES: Record<EvaluationErrorCode, string> = {
   payload_too_large:
     "The submitted State is larger than the 128 KiB limit, so it was rejected " +
     "before any model call.",
+  unauthorized: UNAUTHORIZED_MESSAGE,
+  gate_misconfigured: GATE_MISCONFIGURED_MESSAGE,
   upstream_auth:
     "TypeSafe rejected the server's credentials. The key may be wrong, revoked, " +
     "or lacking access to this model. Check TYPESAFE_API_KEY on the server; the " +
@@ -191,6 +197,8 @@ export const ERROR_STATUS: Record<EvaluationErrorCode, number> = {
   not_configured: 503,
   invalid_request: 400,
   payload_too_large: 413,
+  unauthorized: 401,
+  gate_misconfigured: 503,
   upstream_auth: 502,
   upstream_rate_limit: 429,
   upstream_timeout: 504,

@@ -24,7 +24,7 @@
  * button.
  */
 
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import type {
   DraftReading,
   QuestionRow,
@@ -67,6 +67,11 @@ export function RequestEditor({
   isPending,
   canSubmit,
   onSubmit,
+  passwordOpen,
+  passwordError,
+  passwordUnlocking,
+  onPasswordSubmit,
+  onPasswordCancel,
 }: {
   scenario: Scenario;
   draft: RequestDraft;
@@ -97,6 +102,11 @@ export function RequestEditor({
   /** Every guard passes. The page computes it once. */
   canSubmit: boolean;
   onSubmit: () => void;
+  passwordOpen: boolean;
+  passwordError: string | null;
+  passwordUnlocking: boolean;
+  onPasswordSubmit: (password: string) => void;
+  onPasswordCancel: () => void;
 }) {
   const stateTextareaId = useId();
   const stateErrorId = useId();
@@ -188,6 +198,14 @@ export function RequestEditor({
         >
           {isPending ? "Evaluating with Jev…" : "Evaluate with Jev"}
         </button>
+        {passwordOpen ? (
+          <PasswordPrompt
+            error={passwordError}
+            unlocking={passwordUnlocking}
+            onSubmit={onPasswordSubmit}
+            onCancel={onPasswordCancel}
+          />
+        ) : null}
         {blocker ? (
           <div
             id={submitStatusId}
@@ -514,4 +532,103 @@ function submitBlocker(
     };
   }
   return null;
+}
+
+function PasswordPrompt({
+  error,
+  unlocking,
+  onSubmit,
+  onCancel,
+}: {
+  error: string | null;
+  unlocking: boolean;
+  onSubmit: (password: string) => void;
+  onCancel: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
+  const errorId = useId();
+
+  useEffect(() => {
+    const node = dialogRef.current;
+    if (!node) return;
+    if (!node.open) node.showModal();
+    inputRef.current?.focus();
+    const onNativeCancel = (event: Event) => {
+      event.preventDefault();
+      if (!unlocking) onCancel();
+    };
+    node.addEventListener("cancel", onNativeCancel);
+    return () => {
+      node.removeEventListener("cancel", onNativeCancel);
+      if (node.open) node.close();
+    };
+  }, [onCancel, unlocking]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      data-testid="evaluate-password-dialog"
+      className="password-dialog"
+      aria-labelledby={inputId}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.stopPropagation();
+      }}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (unlocking) return;
+          onSubmit(inputRef.current?.value ?? "");
+        }}
+      >
+        <p className="text-sm font-extrabold">Enter the playground password to evaluate with Jev.</p>
+        <label htmlFor={inputId} className="field-label mt-3 block">
+          Playground password
+        </label>
+        <input
+          ref={inputRef}
+          id={inputId}
+          data-testid="evaluate-password-input"
+          type="password"
+          name="password"
+          autoComplete="off"
+          disabled={unlocking}
+          aria-invalid={error !== null}
+          aria-describedby={error !== null ? errorId : undefined}
+          className="input mt-1 p-2"
+        />
+        {error !== null ? (
+          <p
+            id={errorId}
+            data-testid="evaluate-password-error"
+            role="alert"
+            className="mt-2 border-2 border-[var(--color-danger)] bg-[var(--color-danger-soft)] p-2 text-xs"
+          >
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="submit"
+            data-testid="evaluate-password-submit"
+            disabled={unlocking}
+            className="btn"
+          >
+            {unlocking ? "Checking…" : "Continue"}
+          </button>
+          <button
+            type="button"
+            disabled={unlocking}
+            onClick={onCancel}
+            className="btn"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </dialog>
+  );
 }

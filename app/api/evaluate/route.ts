@@ -11,6 +11,9 @@
  *    cannot name a model, redirect the call, or supply its own credentials.
  *  - The body is read under a hard byte cap, enforced while reading rather than
  *    trusting `Content-Length`.
+ *  - When `PLAYGROUND_PASSWORD` is set, a valid `jev_access` cookie is required
+ *    before `isConfigured` or the adapter run. The password is not an evaluate
+ *    body field.
  *  - Every validation failure happens *before* the SDK is touched, so a bad
  *    request is never a paid request.
  *  - The response is validated against the submitted questions before it is
@@ -24,9 +27,13 @@ import {
   MAX_BODY_BYTES,
   evaluateSystemOne,
   isConfigured,
-  resolveRequestedModel,
 } from "@/lib/evaluation";
 import { validateUpstreamResult } from "@/lib/evaluation-response";
+import {
+  hasValidAccessCookie,
+  isGateMisconfigured,
+  isPasswordGateEnabled,
+} from "@/lib/playground-gate";
 import {
   describeDuplicateKey,
   findDuplicateRequestKeys,
@@ -113,6 +120,15 @@ async function readBodyCapped(request: Request): Promise<BodyRead> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // The cookie is the gate. A password on the body is an extra field and is
+  // rejected as today; it never unlocks evaluate. Refuse before isConfigured
+  // or evaluateSystemOne so a locked request cannot spend money or look like a
+  // provider failure.
+  if (isGateMisconfigured()) return errorResponse("gate_misconfigured");
+  if (isPasswordGateEnabled() && !hasValidAccessCookie(request)) {
+    return errorResponse("unauthorized");
+  }
+
   const read = await readBodyCapped(request);
   if (!read.ok) return errorResponse(read.code);
 
