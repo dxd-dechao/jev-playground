@@ -263,10 +263,7 @@ function SafetyComposition({ result }: { result: PlaygroundResult }) {
       data-testid="composed-outcome"
       className="border-2 border-[var(--color-line)] bg-[var(--color-highlight)] p-3"
     >
-      <h4 className="field-label">
-        Composed by application code — not a model answer
-      </h4>
-      <p className="mt-1.5 text-sm">
+      <p className="text-sm">
         <span className="font-semibold">Recommendation: </span>
         <span data-testid="safety-recommendation" className="font-semibold">
           {SAFETY_RECOMMENDATION_LABELS[composition.recommendation]}
@@ -283,11 +280,6 @@ function SafetyComposition({ result }: { result: PlaygroundResult }) {
           The two independent Choice answers disagree.
         </p>
       ) : null}
-      <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
-        The targeted-insult probability is displayed only. Code does not
-        threshold it into an automatic outcome; choosing a threshold needs
-        evaluation that has not been done.
-      </p>
     </div>
   );
 }
@@ -299,10 +291,7 @@ function MunicipalComposition({ result }: { result: PlaygroundResult }) {
       data-testid="composed-outcome"
       className="border-2 border-[var(--color-line)] bg-[var(--color-highlight)] p-3"
     >
-      <h4 className="field-label">
-        Composed by application code — not a model answer
-      </h4>
-      <p className="mt-1.5 text-sm">
+      <p className="text-sm">
         <span className="font-semibold">Routing status: </span>
         <span data-testid="municipal-status" className="font-semibold">
           {MUNICIPAL_STATUS_LABELS[composition.status]}
@@ -446,11 +435,10 @@ export function ResponsePanel({
               </span>
             </div>
 
-            <p className="mt-2 text-xs text-[var(--color-ink-soft)]">
+            <p data-testid="result-intro" className="mt-2 text-xs text-[var(--color-ink-soft)]">
               These answers came from a real TypeSafe call made when you pressed
               Evaluate with Jev. They are this model&rsquo;s judgment of the
-              State you submitted, not a verdict on the student or the report,
-              and one response is not evidence of accuracy.
+              State you submitted.
             </p>
 
             {isStale ? (

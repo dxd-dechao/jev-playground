@@ -296,11 +296,26 @@ test("renders a successful live result with its real measurements", async ({
   await expect(page.getByTestId("fixture-badge")).toHaveCount(0);
   await expect(page.getByTestId("live-badge")).toContainText("real model call");
 
-  // Raw answers and the separately composed outcome.
-  await expect(page.getByTestId("composed-outcome")).toContainText(
-    "Composed by application code",
+  // The short introduction, and nothing more.
+  await expect(page.getByTestId("result-intro")).toHaveText(
+    "These answers came from a real TypeSafe call made when you pressed Evaluate with Jev. " +
+      "They are this model\u2019s judgment of the State you submitted.",
   );
+  await expect(page.getByText("not a verdict on the student or the report")).toHaveCount(0);
+  await expect(page.getByText("one response is not evidence of accuracy")).toHaveCount(0);
+
+  // The composed outcome, with no heading and no threshold note.
+  const composed = page.getByTestId("composed-outcome");
+  await expect(composed).toBeVisible();
+  await expect(composed).not.toContainText("Composed by application code");
+  await expect(composed.locator("h1, h2, h3, h4, h5, h6")).toHaveCount(0);
+  await expect(composed).not.toContainText("targeted-insult probability is displayed only");
   await expect(page.getByTestId("safety-recommendation")).toHaveText("Allow");
+  await expect(composed).toContainText("Recommendation:");
+  // The raw targeted_insult answer is still shown with its probability.
+  const insult = page.getByTestId("answer-targeted_insult");
+  await expect(insult).toBeVisible();
+  await expect(insult).toContainText("3.0%");
   const card = page.getByTestId("answer-self_harm_context");
   await expect(card).toContainText("Contextual reference");
   await expect(card).toContainText("86.0%");
@@ -667,6 +682,13 @@ test("the municipal scenario evaluates too", async ({ page }, testInfo) => {
   await expect(page.getByTestId("answer-self_harm_context")).toHaveCount(0);
   await expect(page.getByTestId("composed-outcome")).toContainText(
     "Nothing is sent to any agency",
+  );
+  await expect(page.getByTestId("composed-outcome")).toContainText("Routing status:");
+  await expect(page.getByTestId("composed-outcome")).not.toContainText(
+    "Composed by application code",
+  );
+  await expect(page.getByTestId("composed-outcome").locator("h1, h2, h3, h4, h5, h6")).toHaveCount(
+    0,
   );
 
   await page.screenshot({
