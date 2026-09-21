@@ -56,21 +56,22 @@ starts normally, Fixture mode works in full, and Live mode is disabled with an e
 
 ## Live mode and the API key
 
-Copy `.env.example` to `.env.local` and fill in your own key:
+On macOS, store the TypeSafe key in your login Keychain rather than in a plaintext `.env.local` file:
 
 ```bash
-cp .env.example .env.local
-# then edit .env.local:
-#   TYPESAFE_API_KEY=...        required for Live mode
-#   TYPESAFE_MODEL=jev-latest   optional; this is the default
+scripts/store-typesafe-key.sh
+# Paste the key only into the macOS prompt, then start the server:
+scripts/with-typesafe-key.sh npm run dev
 ```
 
-Restart the dev server after editing it — Next.js reads env files at startup.
+The runner reads the key from Keychain and exports it only to the launched server process and
+its children. It does not write or print the secret. Restart the server after changing the key.
+Use the same runner for a production start: `scripts/with-typesafe-key.sh npm run start`.
 
-`.env.local` and every other `.env*` file are gitignored; only `.env.example`, which holds
-placeholders, is committed. The key is read **on the server only**. It is never sent to the
-browser, never included in a response body, and never written into an error message or a
-log line.
+`.env.local` and every other `.env*` file remain gitignored for compatibility, but Keychain is
+the preferred local setup. Only `.env.example`, which holds placeholders, is committed. The key
+is read **on the server only**. It is never sent to the browser, included in a response body, or
+written into an error message or log line.
 
 ### "Configured" is not "verified"
 

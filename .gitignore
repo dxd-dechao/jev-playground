@@ -20,7 +20,8 @@ next-env.d.ts.bak
 /screenshots/
 
 # local env files — every one of them, including any variant added later. A
-# TypeSafe API key belongs only in an untracked file on the machine using it.
+# TypeSafe API key belongs in macOS Keychain; any compatibility env file stays
+# untracked on the machine using it.
 .env
 .env.*
 # ...except the checked-in template, which holds variable names and placeholders
