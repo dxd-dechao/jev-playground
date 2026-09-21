@@ -179,7 +179,7 @@ function scoreInput(cases: SafetyCase[], rows: PredictionRow[], missingIds: stri
   const caseIds = [...cases.map((c) => c.id), ...missingIds];
   const manifest = dummyManifest(caseIds);
   const predictions = loadedPredictions(manifest, rows);
-  return { manifest: predictions.manifest, cases, predictions };
+  return { manifest: predictions.manifest, cases, predictions, scoringLabelsHash: HASH };
 }
 
 /* -------------------------------------------------------------- dataset -- */

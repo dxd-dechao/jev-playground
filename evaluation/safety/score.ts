@@ -283,7 +283,7 @@ function metricsMarkdown(m: SafetyMetrics): string[] {
 }
 
 export function scoreSafety(input: ScoreInput<SafetyCase>): ScoreReport {
-  const { manifest, cases, predictions } = input;
+  const { manifest, cases, predictions, scoringLabelsHash } = input;
   const outcomes = caseOutcomes(input);
   const inventory = labelInventory(cases);
   const review = labelReviewStatus(cases);
@@ -329,6 +329,8 @@ export function scoreSafety(input: ScoreInput<SafetyCase>): ScoreReport {
     requestedModel: manifest.requestedModel,
     datasetVersion: manifest.datasetVersion,
     policyRevision: manifest.policyRevision,
+    preparationLabelsHash: manifest.labelsHash,
+    scoringLabelsHash,
     coverage: coverageSummary(predictions),
     labelInventory: inventory,
     labelReview: review,
@@ -354,7 +356,7 @@ export function scoreSafety(input: ScoreInput<SafetyCase>): ScoreReport {
     cases: outcomes,
   };
 
-  const md: string[] = [reportHeader(REPORT_TITLE, manifest, predictions, inventory)];
+  const md: string[] = [reportHeader(REPORT_TITLE, manifest, predictions, inventory, scoringLabelsHash)];
   md.push(
     "## Label review status",
     "",

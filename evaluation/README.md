@@ -91,17 +91,23 @@ Import everything from `evaluation/shared` (`index.ts`). Key exports:
   manifest hash, split, questions hash, policy revision, code revision, selected
   case IDs, and `preparedAt` (the only intentionally variable field).
 - `loadPredictions(...)` refuses duplicate/unknown IDs, manifest mismatches
-  (dataset, split, questions), mixed provenance or requested model, invalid
-  responses, and stored `composed` outcomes the existing code would not reproduce.
-  A partial file loads; `okIds`, `errorIds`, `missingIds` cover every selected case.
+  (dataset, split, questions), mixed provenance, mixed requested model, **mixed
+  resolved `response.model` among successful rows**, copied `model` that disagrees
+  with the validated response, invalid responses, and stored `composed` outcomes
+  the existing code would not reproduce. A partial file loads; `okIds`,
+  `errorIds`, `missingIds` cover every selected case. Error rows and missing
+  optional model metadata do not count as a second resolved model.
 
 ### Reports — `report.ts`
 
 - `rate(numerator, denominator, excluded?)` → `{ numerator, denominator, value, excluded? }`;
   `value` is `null` when the denominator is zero. `formatRate` renders "unavailable".
 - `coverageSummary(predictions)`, `countBy`, `markdownTable`, `MOCK_BANNER`,
-  `reportHeader(title, manifest, predictions, labelInventory)` (provenance banner,
-  run identity, coverage, label provenance table).
+  `reportHeader(title, manifest, predictions, labelInventory, scoringLabelsHash)`
+  (provenance banner, run identity including preparation vs scoring labels hashes,
+  coverage, label provenance table). `scoreRun` computes `scoringLabelsHash` from
+  the current dataset so a later label review can be scored against saved
+  predictions without rewriting the run manifest.
 
 ### Suite modules — `SuiteDefinition`
 

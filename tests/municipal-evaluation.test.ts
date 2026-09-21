@@ -186,7 +186,7 @@ function loadFor(cases: readonly MunicipalCase[], rows: PredictionRow[], provena
 
 function score(cases: readonly MunicipalCase[], rows: PredictionRow[], provenance: RunManifest["provenance"] = "mock") {
   const { manifest, predictions } = loadFor(cases, rows, provenance);
-  return scoreMunicipal({ manifest, cases: [...cases], predictions });
+  return scoreMunicipal({ manifest, cases: [...cases], predictions, scoringLabelsHash: HASH });
 }
 
 interface MunicipalScoreJson {

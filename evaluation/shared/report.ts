@@ -78,6 +78,7 @@ export function reportHeader(
   manifest: RunManifest,
   predictions: LoadedPredictions,
   inventory: LabelInventory,
+  scoringLabelsHash: string,
 ): string {
   const coverage = coverageSummary(predictions);
   const lines: string[] = [];
@@ -102,6 +103,8 @@ export function reportHeader(
         ["Dataset version", manifest.datasetVersion],
         ["Source hash", manifest.sourceHash],
         ["Input hash", manifest.inputHash],
+        ["Preparation labels hash", manifest.labelsHash],
+        ["Scoring labels hash", scoringLabelsHash],
         ["Split manifest hash", manifest.splitManifestHash],
         ["Questions hash", manifest.questionsHash],
         ["Policy revision", manifest.policyRevision],
@@ -109,6 +112,8 @@ export function reportHeader(
         ["Error policy", manifest.errorPolicy],
       ],
     ),
+    "",
+    "Preparation labels hash is the labels recorded when these predictions were written. Scoring labels hash is the current labels used for this report. Saved predictions stay valid when only labels change; the scoring hash then differs from preparation.",
     "",
     "## Coverage",
     "",

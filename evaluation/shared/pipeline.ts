@@ -103,7 +103,13 @@ export function scoreRun<TCase extends EvalCase>(
     questions: suite.questions,
     compose: suite.compose,
   });
-  const byId = new Map(suite.loadDataset().cases.map((c) => [c.id, c]));
+  const dataset = suite.loadDataset();
+  const byId = new Map(dataset.cases.map((c) => [c.id, c]));
   const cases = manifest.caseIds.map((id) => byId.get(id)!);
-  return suite.score({ manifest, cases, predictions });
+  return suite.score({
+    manifest,
+    cases,
+    predictions,
+    scoringLabelsHash: labelsHash(dataset.cases),
+  });
 }

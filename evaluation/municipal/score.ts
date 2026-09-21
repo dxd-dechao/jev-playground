@@ -167,7 +167,7 @@ function dispositionMetrics(
 }
 
 export function scoreMunicipal(input: ScoreInput<MunicipalCase>): ScoreReport {
-  const { manifest, cases, predictions } = input;
+  const { manifest, cases, predictions, scoringLabelsHash } = input;
   const results = cases.map((c) => evaluateCase(c, input));
   const selected = results.length;
   const ok = results.filter((r) => r.outcome === "ok");
@@ -218,6 +218,8 @@ export function scoreMunicipal(input: ScoreInput<MunicipalCase>): ScoreReport {
     provenance: manifest.provenance,
     split: manifest.split,
     datasetVersion: manifest.datasetVersion,
+    preparationLabelsHash: manifest.labelsHash,
+    scoringLabelsHash,
     coverage: coverageSummary(predictions),
     labelInventory: inventory,
     rawAgency: {
@@ -258,7 +260,7 @@ export function scoreMunicipal(input: ScoreInput<MunicipalCase>): ScoreReport {
     },
   };
 
-  const md: string[] = [reportHeader("Municipal routing evaluation", manifest, predictions, inventory)];
+  const md: string[] = [reportHeader("Municipal routing evaluation", manifest, predictions, inventory, scoringLabelsHash)];
 
   md.push(
     "## Raw agency answer (scored even when routing is suppressed or deferred)",

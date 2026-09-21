@@ -256,6 +256,13 @@ export interface ScoreInput<TCase extends EvalCase = EvalCase> {
   /** The selected cases, in manifest order, with labels. */
   cases: TCase[];
   predictions: LoadedPredictions;
+  /**
+   * Hash of the labels used for this report (`labelsHash` of the current
+   * dataset). Distinct from `manifest.labelsHash`, which is the labels at
+   * prepare/inference time. Label-only reviews change this field without
+   * invalidating saved predictions.
+   */
+  scoringLabelsHash: string;
 }
 
 export interface ScoreReport {

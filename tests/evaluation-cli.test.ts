@@ -56,9 +56,15 @@ const fakeSuite: SuiteDefinition<FakeCase> = {
   loadSplitManifest: () => fakeSplit,
   buildRequest: (c) => buildSafetyRequest(c.input),
   compose: composeSafetyRecommendation,
-  score: ({ manifest, cases, predictions }) => ({
-    json: { suite: "safety", provenance: manifest.provenance, coverage: coverageSummary(predictions) },
-    markdown: reportHeader("Fake safety report", manifest, predictions, labelInventory(cases)),
+  score: ({ manifest, cases, predictions, scoringLabelsHash }) => ({
+    json: {
+      suite: "safety",
+      provenance: manifest.provenance,
+      coverage: coverageSummary(predictions),
+      preparationLabelsHash: manifest.labelsHash,
+      scoringLabelsHash,
+    },
+    markdown: reportHeader("Fake safety report", manifest, predictions, labelInventory(cases), scoringLabelsHash),
   }),
 };
 

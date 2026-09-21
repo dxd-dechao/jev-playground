@@ -27,6 +27,9 @@ import {
   runCases,
   sanitizeError,
   selectSplit,
+  scoreRun,
+  labelsHash,
+  prepareRun,
   stableStringify,
   validateDataset,
   validateSplitManifest,
@@ -38,6 +41,7 @@ import {
   type PreparedRun,
   type SafetyInput,
   type SplitManifest,
+  type SuiteDefinition,
 } from "../evaluation/shared";
 
 type Labels = { handling?: LabelField<string> };
@@ -449,6 +453,37 @@ describe("loadPredictions", () => {
     ).toThrow(/error row must not carry/);
   });
 
+  it("rejects mixed resolved models under one requested model, and conflicting copied model metadata", async () => {
+    const { manifest, rows } = await run();
+    const live = { ...manifest, provenance: "live" as const, requestedModel: "alias-model" };
+    const asLive = (row: (typeof rows)[number], resolved: string, copied?: string) => ({
+      ...row,
+      provenance: "live" as const,
+      requestedModel: "alias-model",
+      response: { ...row.response!, model: resolved },
+      ...(copied === undefined ? { model: resolved } : { model: copied }),
+    });
+    const errorC = {
+      caseId: "c",
+      provenance: "live" as const,
+      requestedModel: "alias-model",
+      status: "error" as const,
+      error: { code: "x", message: "y" },
+    };
+
+    expect(() => load(live, [asLive(rows[0]!, "resolved-v1"), asLive(rows[1]!, "resolved-v2"), errorC])).toThrow(
+      /mixed resolved models/,
+    );
+
+    expect(() => load(live, [asLive(rows[0]!, "resolved-v1", "copied-other"), asLive(rows[1]!, "resolved-v1"), errorC])).toThrow(
+      /copied model differs/,
+    );
+
+    const consistent = load(live, [asLive(rows[0]!, "resolved-v1"), asLive(rows[1]!, "resolved-v1"), errorC]);
+    expect(consistent.okIds).toEqual(["a", "b"]);
+    expect(consistent.errorIds).toEqual(["c"]);
+  });
+
   it("rejects manifests that no longer match the suite", async () => {
     const { manifest, rows } = await run();
     expect(() => load({ ...manifest, questionsHash: "other" }, rows)).toThrow(/questions hash/);
@@ -483,9 +518,80 @@ describe("report helpers", () => {
       now: null,
     });
     const loaded = { manifest, rows: new Map(), okIds: [], errorIds: [], missingIds: ["a"], selected: 1 };
-    const header = reportHeader("Test", manifest, loaded, {});
+    const header = reportHeader("Test", manifest, loaded, {}, "scoring-hash");
     expect(header).toContain(MOCK_BANNER);
     expect(header).toContain("| 1 | 0 | 0 | 1 |");
+    expect(header).toContain("| Scoring labels hash | scoring-hash |");
+    expect(header).toContain("Preparation labels hash");
+  });
+});
+
+describe("scoreRun records the labels used at scoring time", () => {
+  it("rescores unchanged predictions against revised labels and keeps inference metadata", async () => {
+    const original = dataset([
+      safetyCase("a", "g1", { handling: proposed("allow") }),
+      safetyCase("b", "g1", { handling: proposed("allow") }),
+    ]);
+    const split = buildSplitManifest(original, {
+      seed: "rescoring-test",
+      forcedGroups: [{ groupId: "g1", split: "development", reason: "synthetic rescoring fixture" }],
+    });
+    const questions = getScenario("safety").questions;
+
+    const makeSuite = (ds: Dataset<SafetyCase>): SuiteDefinition<SafetyCase> => ({
+      id: "safety",
+      questions,
+      policyRevision: "rescoring-test",
+      loadDataset: () => ds,
+      loadSplitManifest: () => split,
+      buildRequest: (c) => buildSafetyRequest(c.input),
+      compose: composeSafetyRecommendation,
+      score: ({ manifest, cases, predictions, scoringLabelsHash }) => ({
+        json: {
+          preparationLabelsHash: manifest.labelsHash,
+          scoringLabelsHash,
+          inputHash: manifest.inputHash,
+          proposedAllow: cases.filter((c) => c.labels.handling?.value === "allow").length,
+        },
+        markdown: reportHeader("Rescoring test", manifest, predictions, labelInventory(cases), scoringLabelsHash),
+      }),
+    });
+
+    const prepared = prepareRun(makeSuite(original), {
+      split: "development",
+      codeRevision: null,
+      preparedAt: "2026-09-21T00:00:00.000Z",
+    });
+    const { manifest, rows } = await runCases({
+      prepared: prepared.prepared,
+      requests: prepared.requests,
+      evaluator: createMockEvaluator(),
+      compose: composeSafetyRecommendation,
+      provenance: "mock",
+      requestedModel: null,
+      errorPolicy: "continue",
+      now: null,
+    });
+
+    const first = scoreRun(makeSuite(original), manifest, rows);
+    expect(first.json.preparationLabelsHash).toBe(labelsHash(original.cases));
+    expect(first.json.scoringLabelsHash).toBe(labelsHash(original.cases));
+    expect(first.json.proposedAllow).toBe(2);
+
+    const revised = dataset(
+      original.cases.map((c) =>
+        c.id === "a" ? { ...c, labels: { handling: proposed("support") } } : c,
+      ),
+    );
+    expect(labelsHash(revised.cases)).not.toBe(labelsHash(original.cases));
+    const second = scoreRun(makeSuite(revised), manifest, rows);
+    expect(second.json.preparationLabelsHash).toBe(first.json.preparationLabelsHash);
+    expect(second.json.inputHash).toBe(first.json.inputHash);
+    expect(second.json.scoringLabelsHash).toBe(labelsHash(revised.cases));
+    expect(second.json.scoringLabelsHash).not.toBe(first.json.scoringLabelsHash);
+    expect(second.json.proposedAllow).toBe(1);
+    expect(second.markdown).toContain(String(second.json.scoringLabelsHash));
+    expect(second.markdown).toContain(String(second.json.preparationLabelsHash));
   });
 });
 

@@ -144,8 +144,14 @@ export function loadPredictions(options: LoadPredictionsOptions): LoadedPredicti
       const validation = validateUpstreamResult(row.response, questions);
       if (!validation.ok || !validation.value) {
         errors.push(`${at}: response does not validate against the submitted questions`);
-      } else if (stableStringify(compose(validation.value.answers)) !== stableStringify(row.composed)) {
-        errors.push(`${at}: stored composed outcome differs from what existing code composes`);
+      } else {
+        if (stableStringify(compose(validation.value.answers)) !== stableStringify(row.composed)) {
+          errors.push(`${at}: stored composed outcome differs from what existing code composes`);
+        }
+        const resolved = validation.value.model;
+        if (row.model !== undefined && row.model !== resolved) {
+          errors.push(`${at}: copied model differs from the validated response.model`);
+        }
       }
     } else if (row.status === "error") {
       if (row.response !== undefined || row.composed !== undefined) {
@@ -158,6 +164,18 @@ export function loadPredictions(options: LoadPredictionsOptions): LoadedPredicti
       errors.push(`${at}: status must be ok or error`);
     }
     rows.set(id, row);
+  }
+
+  const resolvedModels = new Set<string>();
+  for (const row of rows.values()) {
+    if (row.status !== "ok") continue;
+    const resolved = row.response?.model;
+    if (typeof resolved === "string" && resolved.trim() !== "") resolvedModels.add(resolved);
+  }
+  if (resolvedModels.size > 1) {
+    errors.push(
+      `predictions: mixed resolved models in one run (${[...resolvedModels].sort().join(", ")}); refusing to aggregate`,
+    );
   }
 
   if (errors.length > 0) {
