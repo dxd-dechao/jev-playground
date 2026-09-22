@@ -3,19 +3,23 @@
 A local playground for exploring **TypeSafe Jev typed questions** against two scenarios:
 **Student safety guardrails** and **Municipal ticket triage**.
 
-There is **one action**, **Evaluate with Jev**: one real, billed TypeSafe call per press,
-made from the server. You get the actual typed answers, the measured call duration, the
-token counts the response carried, and the model TypeSafe resolved. Nothing else on the page
-calls the model.
+There are **three actions**. **Evaluate with Jev** posts once to `POST /api/evaluate` (one
+TypeSafe call). **Evaluate with LLM** posts once to `POST /api/evaluate-llm` (one Moonshot
+call). **Evaluate with both** posts once to each route. Each engine's result shows that
+engine's typed answers, the measured call duration, the token counts the response carried,
+and the model the server resolved. A single-engine press keeps **Measurement** under
+those answers. A Both press shows one Measurement comparison first, with both
+durations and token counts, then the answers. A missing Moonshot key disables LLM
+and Both; it does not disable Jev.
 
-Evaluate needs a key on the server; see
-[The API key](#the-api-key). Without one the page still loads, and every editing feature
-works, but Evaluate is disabled with a short explanation and a **Re-check configuration**
-button. (Before JEV-08 there was also an offline Fixture mode; it has been removed from the
-page. The hand-written fixtures remain in `lib/fixtures.ts` as offline test infrastructure.)
+Evaluate with Jev needs a TypeSafe key on the server; Evaluate with LLM needs a Moonshot
+key. See [The API key](#the-api-key). Without the matching key the page still loads, and
+every editing feature works, but that button is disabled with a short explanation. (Before
+JEV-08 there was also an offline Fixture mode; it has been removed from the page. The
+hand-written fixtures remain in `lib/fixtures.ts` as offline test infrastructure.)
 
 A hosted server can also set a shared playground password so Evaluate is not an open
-spend of TypeSafe credits. See [Deploying to Railway](#deploying-to-railway). Browsing,
+spend of provider credits. See [Deploying to Railway](#deploying-to-railway). Browsing,
 editing State and questions, and loading samples stay public.
 
 ## What this is not
@@ -49,7 +53,8 @@ npm run dev     # http://localhost:3000
 `package-lock.json` is committed; use `npm ci` for a reproducible install.
 
 **No key is needed to install, develop, build, or run any check.** Without one the app
-starts normally and every editor works; only Evaluate is disabled, with an explanation.
+starts normally and every editor works; the matching Evaluate buttons are disabled, with
+an explanation.
 
 ## The API key
 
@@ -72,24 +77,29 @@ written into an error message or log line.
 
 ### "Configured" is not "verified"
 
-`GET /api/config` returns `{ "configured": true | false, "access": "open" | "required" | "granted" }`.
+`GET /api/config` returns
+`{ "configured": true | false, "llmConfigured": true | false, "access": "open" | "required" | "granted" }`.
 `configured: true` means a non-empty `TYPESAFE_API_KEY` is present in the server's
 environment — **not** that it is valid, funded, accepted, or within quota. Nothing
 but a real call can establish that, and this check deliberately does not make one.
-`access` is independent: `open` when no playground password is set (the local
-default), `required` when a password is set and this browser has no valid session
-cookie, `granted` when the cookie is valid. The field never includes the password,
-a hash, a cookie value, or key material. Mocked tests that omit `access` are
-treated as `open`.
+`llmConfigured: true` means a non-empty `MOONSHOT_API_KEY` is present, with the
+same caveat; a mocked `{ configured: true }` that omits `llmConfigured` is treated
+as the language-model path not being configured. `access` is independent: `open`
+when no playground password is set (the local default), `required` when a password
+is set and this browser has no valid session cookie, `granted` when the cookie is
+valid. The field never includes the password, a hash, a cookie value, a key, or a
+model name. Mocked tests that omit `access` are treated as `open`.
 
 So a configured server can still fail on the first evaluation with an authentication
 or rate-limit error; that is expected, not a bug. A hosted server with
-`PLAYGROUND_PASSWORD` set still lets anyone browse and edit; only Evaluate asks
+`PLAYGROUND_PASSWORD` set still lets anyone browse and edit; only an Evaluate action asks
 for the shared password, and only the first time in that browser.
 
-While the check is running, or if it fails, Evaluate is disabled. A short status line
-beside the button says why, with a **Re-check configuration** button when there is no key
-or the check failed. A configured server shows the button alone.
+While the TypeSafe check is running, or if it fails, Evaluate with Jev is disabled. A short
+status line beside the buttons says why, with a **Re-check configuration** button when there
+is no TypeSafe key or the check failed. When TypeSafe is configured and Moonshot is not, Jev
+stays enabled and a separate note says the language-model button needs a Moonshot key on the
+server. When both keys are present, neither note is shown.
 
 ### What Evaluate sends, and what it does not
 
@@ -104,13 +114,15 @@ invalid request, and none of them calls the provider. The model, the provider UR
 key stay server decisions: a page **cannot** supply them, and the route rejects any body
 carrying them. The body cap stays at 128 KiB.
 
-One submission — a press of **Evaluate with Jev** or **⌘/Ctrl+Enter** — is **one** upstream
-request. Retries are switched off, including the SDK's own defaults, so a failure is
-reported rather than silently re-billed. The call is aborted after 30 seconds. The shortcut
-has the same guards as the button: it does nothing while the request is invalid, the
-server is unconfigured, or a call is already in flight. Nothing else in the UI causes
-inference: typing, loading a sample, resetting, switching scenario, State format, or view,
-and re-checking configuration never call the model.
+One press of **Evaluate with Jev** or **⌘/Ctrl+Enter** is **one** TypeSafe request. One press
+of **Evaluate with LLM** is **one** Moonshot request. **Evaluate with both** is those two
+calls started together, not one after the other. Retries are switched off, including the
+SDK's own defaults, so a failure is reported rather than silently re-billed. Each call is
+aborted after 30 seconds. The shortcut has the same guards as Evaluate with Jev: it does
+nothing while the request is invalid, TypeSafe is unconfigured, or a call is already in
+flight, and it never starts an LLM or both call. Nothing else in the UI causes inference:
+typing, loading a sample, resetting, switching scenario, State format, or view, and
+re-checking configuration never call a model.
 
 Before a live response is rendered it is checked against the questions that were submitted —
 answer ids and types must match, a Choice option must be one of that question's criteria,
@@ -141,6 +153,23 @@ own request snapshot, labelled stale if the State or questions have since change
 Error messages and server logs carry the code and guidance only — never the key, never the
 raw upstream error, never the submitted student message.
 
+## Language-model evaluation
+
+**Evaluate with LLM** calls `POST /api/evaluate-llm`. **Evaluate with both** calls that
+route once and `POST /api/evaluate` once. Both routes accept the same body —
+`{ scenarioId, state, questions }` — and the same `jev_access` cookie when the playground
+password is set. One LLM request spends one Moonshot chat-completions call (default model
+`kimi-k2.6` with thinking disabled and temperature `0.6`) using structured output
+(`json_schema`, strict) built from the submitted questions. A reply that still fails the
+answer check is not shown. The call returns the same typed answers envelope plus the
+measured call duration and the token counts the response actually carried. **Cost** stays
+unavailable: Moonshot does not report a cost field here, and nothing is estimated.
+A Both press shows one Measurement comparison first, with both durations and token
+counts. A single-engine press still shows Measurement under that engine's answers.
+
+Unset `MOONSHOT_API_KEY` is valid. That route then returns 503 `not_configured`. Evaluate
+with LLM and Evaluate with both are disabled; Evaluate with Jev is unaffected.
+
 ## Checks
 
 ```bash
@@ -148,13 +177,32 @@ npm run typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
 npm run build       # production build; succeeds with no API key present
 ```
 
-Neither command makes a provider call, even on a machine with a key configured.
-`lib/evaluation.ts` is the only module that reads the key or imports the SDK, and
-the only route that can call it is `POST /api/evaluate`.
+The offline evaluation commands (`eval:prepare`, `eval:mock-run`, `eval:score`,
+`eval:preflight`) are described in [Evaluation](#evaluation); they need no key either. The two
+live commands (`eval:smoke`, `eval:live`) spend money and are never part of a check.
 
-`package.json` still lists `test`, `test:e2e`, and `eval:*`. The files those
-scripts need — `tests/`, `vitest.config.ts`, `playwright.config.ts`, and
-`evaluation/` — are not in this repository, so a clone cannot run them.
+**No automated check makes a real provider call**, even on a machine with a key configured:
+
+- The adapter tests drive the real SDK over an injected fake `fetch` and a synthetic fake
+  key, so the request is fully assembled but never leaves the process.
+- The route tests mock the adapter and assert it was **not** called on every rejection path.
+- The browser tests fulfil `/api/config` and `/api/evaluate` with `page.route`, and
+  `playwright.config.ts` starts the server under test with the TypeSafe, playground-password,
+  and Moonshot variables blanked, so an unmocked request could only produce a 503.
+- One test greps the emitted client bundle in `.next/static` for the fake key, for
+  `TYPESAFE_API_KEY`, for `api.typesafe.ai`, for the SDK itself, for
+  `process.env.PLAYGROUND` / playground password values, and for `MOONSHOT_API_KEY`,
+  `api.moonshot.ai`, `api.moonshot.cn`, and the synthetic Moonshot test key,
+  confirming that keys, session secret, and both transports stay on the server. Run
+  `npm run build` before `npm run test` for it to execute.
+- The live-path tests drive the same guards with fake evaluators and a fake `fetch`, and assert
+  the network was never touched. One test asserts that `evaluation/live.ts` is the only module
+  under `evaluation/` that imports the SDK or the transport, and that nothing imports it
+  statically, so an offline command cannot load it even by accident.
+
+Mocked live results are annotated as such in the Playwright report. A green
+`live-playground.spec.ts` is evidence that the UI handles live-shaped responses correctly —
+not that the integration has been verified against the real service.
 
 ### Why the build is pinned to webpack
 
@@ -173,6 +221,20 @@ process can bind a port on the same machine, and the Turbopack build succeeds as
 present in the emitted CSS. If Turbopack's PostCSS worker works in your environment, you
 can drop the flag; the application code does not depend on either bundler.
 
+### Browser tests
+
+Playwright needs a matching Chromium. If the suite reports a missing browser:
+
+```bash
+npx playwright install chromium
+```
+
+The suite starts its own production server on `127.0.0.1:3100`, so run `npm run build`
+first. It also writes layout evidence to `screenshots/` (gitignored): full-page
+screenshots per viewport project, including the request editor's Form, invalid-JSON, and
+custom-question views. Playwright starts that server with TypeSafe, playground-password,
+and Moonshot variables blanked, so an unmocked Evaluate can only 503.
+
 ## Deploying to Railway
 
 This is a Next.js app. Create a Railway service from this GitHub repository. Do not
@@ -185,11 +247,12 @@ put real secrets in the repo.
   the process.
 - **Healthcheck:** `GET /`.
 
-Set these variables on the service. Mark the two secrets as sensitive:
+Set these variables on the service. Mark secrets as sensitive:
 
 | Variable | Required | Role |
 | --- | --- | --- |
-| `TYPESAFE_API_KEY` | To Evaluate | TypeSafe key. Visitors never type this. |
+| `TYPESAFE_API_KEY` | To Evaluate with Jev | TypeSafe key. Visitors never type this. |
+| `MOONSHOT_API_KEY` | Optional | Moonshot key for Evaluate with LLM / both (`POST /api/evaluate-llm`). Unset is valid; that route then returns 503, and Jev stays available. |
 | `PLAYGROUND_PASSWORD` | To gate Evaluate | Shared password people type. Blank/unset = gate off. Both sides are trimmed once. |
 | `PLAYGROUND_SESSION_SECRET` | When the password is set | Long random HMAC key for the `jev_access` cookie. Do not derive it from the password. |
 
@@ -197,7 +260,7 @@ Browsing, editing State/questions, loading samples, Reset, and the configuration
 re-check stay public. Evaluate is gated when `PLAYGROUND_PASSWORD` is set: the first
 press in a browser asks for the password; later presses use an HttpOnly cookie for
 seven days. This is a shared-secret speed bump, **not** user accounts. Anyone who
-knows the password can spend TypeSafe credits.
+knows the password can spend TypeSafe and Moonshot credits.
 
 Unlock failures are rate-limited in memory (five per client IP per 15 minutes, using
 the first `x-forwarded-for` hop on Railway). That budget is per replica and is not a
@@ -218,18 +281,25 @@ Three panels, left to right (stacked on narrow viewports):
    is yellow. Safety is the default. The full purpose and the scenario's caveat are in the
    **About this scenario** disclosure under the Request heading.
 2. **Request** — a **Form** / **Whole-request JSON** switch sits beside the heading (see
-   [Editing the request](#editing-the-request)). Below it is the one action, **Evaluate
-   with Jev** (**⌘/Ctrl+Enter** does the same). When the request is valid and the server has
-   a key, the button stands alone; otherwise one short line beside it says what blocks it.
-   State and every question are always submitted together as **one** request. Then the
-   **State** section: grouped sample buttons replace the State **only** and keep your
-   questions; **Reset to preset** (in red) restores the scenario's default State *and*
-   questions and discards any invalid draft. Samples and Reset work in either view.
-3. **Response** — answers as cards or as raw JSON, always under the **Live Jev response —
-   real model call** badge and the model that answered.
+   [Editing the request](#editing-the-request)). Below it are three actions: **Evaluate
+   with Jev** (`POST /api/evaluate`; **⌘/Ctrl+Enter** does the same), **Evaluate with LLM**
+   (`POST /api/evaluate-llm`), and **Evaluate with both** (one call to each). When the
+   request is valid and the matching key is present, that button is enabled; otherwise a
+   short line beside the buttons says what blocks it. A missing Moonshot key disables LLM
+   and Both without disabling Jev. State and every question are always submitted together
+   as **one** request. Then the **State** section: grouped sample buttons replace the State
+   **only** and keep your questions; **Reset to preset** (in red) restores the scenario's
+   default State *and* questions and discards any invalid draft. Samples and Reset work in
+   either view.
+3. **Response** — answers as cards or as raw JSON, under that engine's live badge and the
+   model that answered. A Jev result uses **Live Jev response — real model call**; an LLM
+   result uses **Live LLM response — real model call**. Evaluate with both puts one
+   Measurement comparison first — Jev and LLM durations and token counts — then stacks
+   Jev then LLM answers. A single-engine press still shows Measurement under that
+   engine's answers.
 
-Each scenario keeps its **own** draft and its **own** result. Switching scenarios never
-shows one scenario's result beside another's request.
+Each scenario keeps its **own** draft and its **own** Jev and LLM result slots. Switching
+scenarios never shows one scenario's result beside another's request.
 
 ### A result belongs to one request
 
@@ -368,24 +438,32 @@ date recorded in the file header. It contains intentional overlap between agenci
 
 ```
 app/                    App Router shell, global tokens, client page holding all state
-app/api/config/         GET { configured, access } — key presence + password-gate state
-app/api/unlock/         POST { password } — HttpOnly session cookie; never calls TypeSafe
-app/api/evaluate/       POST { scenarioId, state, questions } — the only route that can spend money
+app/api/config/         GET { configured, llmConfigured, access } — key presence + password-gate state
+app/api/unlock/         POST { password } — HttpOnly session cookie; never calls a provider
+app/api/evaluate/       POST { scenarioId, state, questions } — the only TypeSafe call
+app/api/evaluate-llm/   POST { scenarioId, state, questions } — one Moonshot call; Evaluate with LLM / both
 components/             scenario-picker, request-editor, question-editor, response-panel,
                         probability-bars
 lib/evaluation.ts       server-only SDK adapter: lazy client, no retries, 30 s abort
+lib/llm-evaluation.ts   server-only Moonshot adapter: fetch, no retries, 30 s abort
 lib/evaluation-response.ts  runtime check of a response against the submitted questions
 lib/playground-gate.ts  server-only password compare, signed cookie, unlock rate limit
 lib/request-draft.ts    editable drafts: Form rows, State Text/JSON rule, raw JSON parsing
 lib/                    types, schemas (Zod), scenarios + samples, fixtures,
                         safety-guardrails, municipal-routing, agency-definitions
-scripts/                macOS Keychain helpers for the TypeSafe key
-railway.toml            Railpack build, start command, and `/` healthcheck
-.env.example            placeholder variable names only
+evaluation/             evaluation tooling: shared contract, CLI, municipal and safety
+                        suites. Offline by default; live.ts and smoke.ts are the
+                        only paid path and are opt-in (see evaluation/README.md)
+tests/                  decisions, request-validation, request-draft, evaluation,
+                        evaluation-route, llm-evaluation, playground-gate, evaluation-shared, evaluation-cli,
+                        municipal-evaluation, safety-evaluation (vitest); playground.spec.ts,
+                        live-playground.spec.ts, request-editor.spec.ts (Playwright)
 ```
 
-`lib/evaluation.ts` is the only module that touches the key or the SDK, and it refuses to
-load in a browser. Nothing above it in the import graph is a client component.
+`lib/evaluation.ts` is the only module that touches the TypeSafe key or the SDK, and it
+refuses to load in a browser. `lib/llm-evaluation.ts` is the only module that reads
+`MOONSHOT_API_KEY` or calls Moonshot; it also refuses to load in a browser. Nothing
+above either in the import graph is a client component. The page does not import them.
 
 Bars are `aria-hidden`; every percentage is also present as text, so nothing is conveyed by
 colour or width alone.

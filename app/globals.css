@@ -136,6 +136,27 @@ body {
     box-shadow: 3px 3px 0 var(--color-danger);
   }
 
+  /* The three Evaluate actions wrap on a narrow screen. */
+  .submit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  /* Jev and LLM measurement columns wrap on a narrow screen. */
+  .comparison-columns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .comparison-columns > * {
+    min-width: 11rem;
+    flex: 1 1 11rem;
+  }
+
   /* The one primary submission button. */
   .btn-primary {
     display: inline-flex;

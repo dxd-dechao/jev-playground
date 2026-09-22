@@ -1,20 +1,22 @@
 /**
- * `GET /api/config` — can Evaluate be offered, and is the password gate on?
+ * `GET /api/config` — can Evaluate be offered, is a Moonshot key present, and
+ * is the password gate on?
  *
- * Returns `{ configured: boolean, access: "open" | "required" | "granted" }`.
- * Nothing else: no key fragment, no password, no hash, no cookie value, no
- * account metadata, no model list, no environment dump.
+ * Returns `{ configured, llmConfigured, access }`. Nothing else: no key
+ * fragment, no password, no hash, no cookie value, no account metadata, no
+ * model list, no environment dump.
  *
- * "Configured" means a nonempty `TYPESAFE_API_KEY` is present on the server. It
- * does not mean the key is valid, the account has quota, or TypeSafe is
- * reachable — verifying any of that would require a paid call, and a
- * configuration check must never make one.
+ * "Configured" means a nonempty `TYPESAFE_API_KEY` is present on the server.
+ * `llmConfigured` means a nonempty `MOONSHOT_API_KEY` is present. Neither
+ * means the key is valid or the service is reachable — verifying that would
+ * require a paid call, and a configuration check must never make one.
  *
- * `access` is independent of `configured`: it is the playground password gate,
- * not a claim about the TypeSafe key.
+ * `access` is independent of both key flags: it is the playground password
+ * gate, not a claim about either provider.
  */
 
 import { isConfigured } from "@/lib/evaluation";
+import { isLlmConfigured } from "@/lib/llm-evaluation";
 import { readAccess } from "@/lib/playground-gate";
 import type { ConfigPayload } from "@/lib/types";
 
@@ -37,6 +39,17 @@ export function GET(request: Request): Response {
     configured = false;
   }
 
-  const payload: ConfigPayload = { configured, access: readAccess(request) };
+  let llmConfigured = false;
+  try {
+    llmConfigured = isLlmConfigured();
+  } catch {
+    llmConfigured = false;
+  }
+
+  const payload: ConfigPayload = {
+    configured,
+    llmConfigured,
+    access: readAccess(request),
+  };
   return new Response(JSON.stringify(payload), { status: 200, headers: NO_STORE });
 }
