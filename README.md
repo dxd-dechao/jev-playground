@@ -26,18 +26,15 @@ editing State and questions, and loading samples stay public.
 
 - **Not** a measurement of Jev quality. A working integration says the API returns typed
   answers in the documented shape. It says nothing about whether those answers are right.
-  Each sample's proposed expected outcome is kept in `lib/scenarios.ts` for the offline
-  evaluation tooling only; it is not shown in the page, never enters State, and has never
-  been scored against a real evaluation.
+  Each sample's proposed expected outcome is kept in `lib/scenarios.ts`. It is not
+  shown in the page and never enters State.
 - **Not** evidence that the safety scenario is safe or that the routing scenario routes
   correctly. One response is one response.
 - **Not** a moderation or escalation system. The safety scenario does not contact anyone,
   log anything, or take action on a student. Nothing is dispatched to any agency.
-- **Not** a benchmark runner in the browser. The playground has no dataset sweep, no accuracy
-  metric, and no run history. A result shows what a single call measured. Offline
-  evaluation tooling lives separately under `evaluation/` (see [Evaluation](#evaluation)); its
-  live commands are explicitly invoked, never part of a check, and never reachable from the
-  browser.
+- **Not** a benchmark runner. The playground has no dataset sweep, no accuracy
+  metric, and no run history. A result shows what a single call measured. This
+  repository does not include an evaluation dataset, scorer, or live runner.
 - **Not** a cost report. The API documents no cost field, so **Cost** always reads
   *Unavailable* rather than an estimate dressed up as a measurement.
 
@@ -45,8 +42,6 @@ editing State and questions, and loading samples stay public.
 
 - Node **>= 20.9.0** and npm **>= 10**. Developed and checked on Node **26.3.1** /
   npm **11.16.0**.
-- A Chromium build for Playwright, only if you want to run the browser tests
-  (see [Browser tests](#browser-tests)).
 
 ## Setup
 
@@ -179,9 +174,7 @@ with LLM and Evaluate with both are disabled; Evaluate with Jev is unaffected.
 
 ```bash
 npm run typecheck   # tsc --noEmit, strict + noUncheckedIndexedAccess
-npm run test        # vitest: composition, fixtures, validation, adapter, route
 npm run build       # production build; succeeds with no API key present
-npm run test:e2e    # Playwright, desktop 1440px and mobile 390px
 ```
 
 The offline evaluation commands (`eval:prepare`, `eval:mock-run`, `eval:score`,
@@ -273,11 +266,11 @@ Unlock failures are rate-limited in memory (five per client IP per 15 minutes, u
 the first `x-forwarded-for` hop on Railway). That budget is per replica and is not a
 security boundary.
 
-`railway.toml` in this repo matches the build/start/healthcheck above. It does not
-contain a service token. This task does not create a Railway project or deploy.
+`railway.toml` matches the build, start, and healthcheck above. It does not
+contain a service token.
 
-JEV-06's live evaluation budget is exhausted. Deploying the playground makes no
-provider call by itself; only an explicit Evaluate after unlock does.
+Deploying the playground makes no provider call by itself. Only an explicit
+Evaluate, after the password unlock when the gate is on, does.
 
 ## How it works
 
@@ -433,55 +426,6 @@ thresholded into a boolean and never overrides the Choice answers.
 
 Raw agency accuracy and the application's decision to defer or suppress are kept distinct,
 so abstention cannot hide an error.
-
-## Evaluation
-
-`evaluation/` holds reproducible tooling for two synthetic suites that reuse the presets'
-questions and composition code unchanged:
-
-- **Municipal** (JEV-04): a byte-for-byte snapshot of the 150-case synthetic interview test
-  set, with its inherited agency labels kept as single-source `inherited_reference` labels
-  and a separate, unreviewed disposition annotation sheet.
-- **Student safety** (JEV-05): newly authored synthetic contrast cases whose labels are all
-  `proposed` until a named human reviewer records a review.
-
-```bash
-npm run eval:prepare  -- --suite municipal --split development --out evaluation-output/m-dev
-npm run eval:mock-run -- --prepared evaluation-output/m-dev --out evaluation-output/m-run
-npm run eval:score    -- --suite municipal --manifest evaluation-output/m-run/run-manifest.json \
-                         --predictions evaluation-output/m-run/predictions.jsonl --out evaluation-output/m-report
-```
-
-`prepare` writes label-free requests; `mock-run` answers them with a deterministic mock;
-`score` validates provenance and writes JSON and Markdown metrics; `preflight` checks all four
-suite/split request sets before anything is spent. **None of these four commands calls a model,
-reads an API key, or uses the network.** Mock reports are stamped **MOCK DATA — NOT MODEL
-PERFORMANCE**. `evaluation-output/` is gitignored.
-
-Two commands do call TypeSafe for real (JEV-06), and only when explicitly invoked:
-
-```bash
-npm run eval:smoke -- --out <dir> --max-calls 12 --confirm-live     # 12 sample calls
-npm run eval:live  -- --prepared <dir> --out <dir> --max-calls <n> --confirm-live
-```
-
-Both require an explicit numeric `--max-calls` **and** a deliberate `--confirm-live`, refuse to
-start when the requests would exceed the cap, and offer `--dry-run` to preview without reading
-the credential. There is no environment switch and no credential-driven fallback: a stored key
-changes nothing until someone types the flags. One case is one attempt — retries stay disabled.
-
-**One authorized live pass has been run:** 214 calls (12 smoke, then 97 + 53 + 44 + 8 across
-the four splits), all succeeded, all resolved to `jev-1.13.0`, 268,931 input and 34,083 output
-tokens. Coverage was 100% on every split. All agreement figures are **diagnostic**, because no
-label has been reviewed by a human. The measurements, the per-split breakdowns, and the
-limitations are in [`evaluation/JEV-06-RESULTS.md`](evaluation/JEV-06-RESULTS.md).
-
-What remains unverified: **any operational agency assignment policy, and school safety
-effectiveness**. Held-out cases are synthetic and are not independent real-world validation.
-Labels are proposed or inherited, never reviewed, so accuracy-style numbers from a live run are
-**diagnostic only** and reviewed-label metrics stay *unavailable* until a named human reviews
-labels. See [`evaluation/README.md`](evaluation/README.md) for the contract, provenance labels,
-annotation procedure, and the files needed to reproduce a run.
 
 ## Agency taxonomy provenance
 
