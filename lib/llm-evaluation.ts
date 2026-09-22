@@ -204,7 +204,7 @@ function noulAnswerSchema(): JsonSchema {
     additionalProperties: false,
     required: ["type", "noul"],
     properties: {
-      type: { enum: ["noul"] },
+      type: { type: "string", enum: ["noul"] },
       noul: {
         type: "number",
         description: "The probability of yes, from 0 to 1 inclusive.",
@@ -227,8 +227,8 @@ function choiceAnswerSchema(question: ChoiceQuestion): JsonSchema {
     additionalProperties: false,
     required: ["type", "choice", "probabilities"],
     properties: {
-      type: { enum: ["choice"] },
-      choice: { enum: keys },
+      type: { type: "string", enum: ["choice"] },
+      choice: { type: "string", enum: keys },
       probabilities: {
         type: "object",
         additionalProperties: false,
@@ -241,7 +241,7 @@ function choiceAnswerSchema(question: ChoiceQuestion): JsonSchema {
 
 function legendPropertySchema(level: Instructions | null): JsonSchema {
   if (level === null) return { type: "null" };
-  if (typeof level === "string") return { enum: [level] };
+  if (typeof level === "string") return { type: "string", enum: [level] };
   if (Array.isArray(level)) return { type: "array" };
   return { type: "object" };
 }
@@ -264,7 +264,7 @@ function scoreAnswerSchema(question: ScoreQuestion): JsonSchema {
     additionalProperties: false,
     required: ["type", "score", "legend", "probabilities"],
     properties: {
-      type: { enum: ["score"] },
+      type: { type: "string", enum: ["score"] },
       score: {
         type: "number",
         description: `Inclusive range 0 through ${String(highest)}.`,
