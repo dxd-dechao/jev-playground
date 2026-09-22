@@ -164,7 +164,9 @@ raw upstream error, never the submitted student message.
 route once and `POST /api/evaluate` once. Both routes accept the same body —
 `{ scenarioId, state, questions }` — and the same `jev_access` cookie when the playground
 password is set. One LLM request spends one Moonshot chat-completions call (default model
-`kimi-k2.6` with thinking disabled) and returns the same typed answers envelope plus the
+`kimi-k2.6` with thinking disabled and temperature `0.6`) using structured output
+(`json_schema`, strict) built from the submitted questions. A reply that still fails the
+answer check is not shown. The call returns the same typed answers envelope plus the
 measured call duration and the token counts the response actually carried. **Cost** stays
 unavailable: Moonshot does not report a cost field here, and nothing is estimated.
 A Both press shows one Measurement comparison first, with both durations and token

@@ -15,18 +15,23 @@
  * - Exactly one upstream request per call. No retries, no streaming.
  * - A finite 30-second budget enforced by an `AbortSignal` we control.
  * - Server-owned model and base URL. The browser cannot influence either.
- * - Answers are checked with `validateUpstreamResult` before they leave here.
- *   A malformed reply is an error, never a partial payload.
+ * - The chat body uses Moonshot structured output (`json_schema`, strict),
+ *   built from the submitted questions. Answers are still checked with
+ *   `validateUpstreamResult` before they leave here. A malformed reply is an
+ *   error, never a partial payload.
  * - Sanitized errors. Upstream bodies, headers, credentials, and submitted
  *   State never leave this module in a message or a log line.
  */
 
 import { validateUpstreamResult } from "./evaluation-response";
 import type {
+  ChoiceQuestion,
   EvaluationErrorCode,
+  Instructions,
   LiveEvaluationPayload,
   Question,
   Questions,
+  ScoreQuestion,
   State,
   Usage,
 } from "./types";
@@ -188,6 +193,152 @@ function describeAnswerContract(id: string, question: Question): string {
   }
 }
 
+type JsonSchema = Record<string, unknown>;
+
+const PROBABILITY_DESCRIPTION =
+  "A probability from 0 to 1 inclusive. The values must sum to 1.";
+
+function noulAnswerSchema(): JsonSchema {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["type", "noul"],
+    properties: {
+      type: { enum: ["noul"] },
+      noul: {
+        type: "number",
+        description: "The probability of yes, from 0 to 1 inclusive.",
+      },
+    },
+  };
+}
+
+function choiceAnswerSchema(question: ChoiceQuestion): JsonSchema {
+  const keys = Object.keys(question.criteria);
+  const probabilityProperties: Record<string, JsonSchema> = {};
+  for (const key of keys) {
+    probabilityProperties[key] = {
+      type: "number",
+      description: PROBABILITY_DESCRIPTION,
+    };
+  }
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["type", "choice", "probabilities"],
+    properties: {
+      type: { enum: ["choice"] },
+      choice: { enum: keys },
+      probabilities: {
+        type: "object",
+        additionalProperties: false,
+        required: keys,
+        properties: probabilityProperties,
+      },
+    },
+  };
+}
+
+function legendPropertySchema(level: Instructions | null): JsonSchema {
+  if (level === null) return { type: "null" };
+  if (typeof level === "string") return { enum: [level] };
+  if (Array.isArray(level)) return { type: "array" };
+  return { type: "object" };
+}
+
+function scoreAnswerSchema(question: ScoreQuestion): JsonSchema {
+  const highest = question.criteria.length - 1;
+  const keys = question.criteria.map((_, index) => String(index));
+  const legendProperties: Record<string, JsonSchema> = {};
+  const probabilityProperties: Record<string, JsonSchema> = {};
+  for (const [index, level] of question.criteria.entries()) {
+    const key = String(index);
+    legendProperties[key] = legendPropertySchema(level);
+    probabilityProperties[key] = {
+      type: "number",
+      description: PROBABILITY_DESCRIPTION,
+    };
+  }
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["type", "score", "legend", "probabilities"],
+    properties: {
+      type: { enum: ["score"] },
+      score: {
+        type: "number",
+        description: `Inclusive range 0 through ${String(highest)}.`,
+      },
+      legend: {
+        type: "object",
+        additionalProperties: false,
+        required: keys,
+        properties: legendProperties,
+      },
+      probabilities: {
+        type: "object",
+        additionalProperties: false,
+        required: keys,
+        properties: probabilityProperties,
+      },
+    },
+  };
+}
+
+function answerSchema(question: Question): JsonSchema {
+  switch (question.type) {
+    case "noul":
+      return noulAnswerSchema();
+    case "choice":
+      return choiceAnswerSchema(question);
+    case "score":
+      return scoreAnswerSchema(question);
+  }
+}
+
+/**
+ * Moonshot structured-output `response_format` for one request's questions.
+ *
+ * Field names and types only. Sum-to-1 and numeric ranges stay with
+ * `validateUpstreamResult`. Confidence is omitted so the model cannot invent it.
+ */
+export function buildLlmResponseFormat(questions: Questions): {
+  type: "json_schema";
+  json_schema: {
+    name: "playground_answers";
+    strict: true;
+    schema: JsonSchema;
+  };
+} {
+  const ids = Object.keys(questions);
+  const properties: Record<string, JsonSchema> = {};
+  for (const id of ids) {
+    const question = questions[id];
+    if (question === undefined) continue;
+    properties[id] = answerSchema(question);
+  }
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: "playground_answers",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["answers"],
+        properties: {
+          answers: {
+            type: "object",
+            additionalProperties: false,
+            required: ids,
+            properties,
+          },
+        },
+      },
+    },
+  };
+}
+
 /** System message: one JSON object, with each submitted question's answer shape. */
 export function buildLlmSystemMessage(questions: Questions): string {
   const contracts = Object.entries(questions)
@@ -303,11 +454,12 @@ function buildChatBody(
       { role: "user", content: JSON.stringify({ state, questions }) },
     ],
     stream: false,
-    response_format: { type: "json_object" },
+    response_format: buildLlmResponseFormat(questions),
   };
   if (requestedModel === LLM_THINKING_DISABLED_MODEL) {
     body.thinking = { type: "disabled" };
-    body.temperature = 0;
+    // kimi-k2.6 rejects every temperature except 0.6.
+    body.temperature = 0.6;
   }
   return body;
 }
